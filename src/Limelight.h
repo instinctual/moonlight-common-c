@@ -24,6 +24,7 @@ extern "C" {
 #define COLORSPACE_REC_601  0
 #define COLORSPACE_REC_709  1
 #define COLORSPACE_REC_2020 2
+#define COLORSPACE_IDENTITY_GBR 3 // Full-range G,B,R planes signaled with matrix coefficients 0
 
 // Values for the 'colorRange' field below
 #define COLOR_RANGE_LIMITED  0
@@ -513,6 +514,7 @@ void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks)
 #define SCM_HEVC_REXT10_444 0x00100000 // Sunshine extension
 #define SCM_AV1_HIGH8_444   0x00200000 // Sunshine extension
 #define SCM_AV1_HIGH10_444  0x00400000 // Sunshine extension
+#define SCM_IDENTITY_GBR_444 0x00800000 // StationConnect identity G,B,R plane mapping
 
 // SCM masks to identify various codec capabilities
 #define SCM_MASK_H264   (SCM_H264 | SCM_H264_HIGH8_444)
