@@ -51,6 +51,10 @@ typedef struct _RTP_VIDEO_QUEUE {
     uint64_t unrecoverableFecBlocks;
     uint64_t unrecoverableFrames;
     uint32_t lastUnrecoverableFrameNumber;
+#ifdef LC_DEBUG
+    uint64_t validatedFecBlocks;
+    uint64_t validatedDataShards;
+#endif
 } RTP_VIDEO_QUEUE, *PRTP_VIDEO_QUEUE;
 
 #define RTPF_RET_QUEUED    0

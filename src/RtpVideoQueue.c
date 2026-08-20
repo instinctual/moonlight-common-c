@@ -48,6 +48,10 @@ void RtpvLogFecStats(PRTP_VIDEO_QUEUE queue) {
             queue->recoveredFecBlocks, queue->recoveredDataShards);
     Limelog("Video FEC unrecoverable: %" PRIu64 " blocks, %" PRIu64 " frames\n",
             queue->unrecoverableFecBlocks, queue->unrecoverableFrames);
+#ifdef FEC_VALIDATION_MODE
+    Limelog("Video FEC byte validation: %" PRIu64 " blocks, %" PRIu64 " data shards\n",
+            queue->validatedFecBlocks, queue->validatedDataShards);
+#endif
 }
 
 static void countUnrecoverableFrameRange(PRTP_VIDEO_QUEUE queue, uint32_t firstFrameNumber, uint32_t lastFrameNumber) {
@@ -440,6 +444,9 @@ cleanup_packets:
                     }
 
                     LC_ASSERT_VT(recoveryErrors == 0);
+
+                    queue->validatedFecBlocks++;
+                    queue->validatedDataShards++;
 
                     // This drop was fake, so we don't want to actually submit it to the depacketizer.
                     // It will get confused because it's already seen this packet before.
