@@ -127,6 +127,11 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define CONN_OKAY_LOSS_RATE 5
 #define CONN_STATUS_SAMPLE_PERIOD 3000
 
+// A large 4K IDR plus FEC can occupy the configured stream for several hundred
+// milliseconds. Keep retries far enough apart that they cannot overlap and
+// amplify loss into an IDR bitrate storm.
+#define IDR_FRAME_REQUEST_MIN_INTERVAL_MS 500
+
 #define IDX_START_A 0
 #define IDX_REQUEST_IDR_FRAME 0
 #define IDX_START_B 1
@@ -1622,6 +1627,8 @@ static void referenceFrameControlFunc(void* context) {
 }
 
 static void requestIdrFrameFunc(void* context) {
+    uint64_t lastIdrRequestTimeMs = 0;
+
     while (!PltIsThreadInterrupted(&requestIdrFrameThread)) {
         PltWaitForEvent(&idrFrameRequiredEvent);
         PltClearEvent(&idrFrameRequiredEvent);
@@ -1631,11 +1638,23 @@ static void requestIdrFrameFunc(void* context) {
             return;
         }
 
+        uint64_t now = PltGetMillis();
+        if (lastIdrRequestTimeMs != 0 && now - lastIdrRequestTimeMs < IDR_FRAME_REQUEST_MIN_INTERVAL_MS) {
+            uint64_t delayMs = IDR_FRAME_REQUEST_MIN_INTERVAL_MS - (now - lastIdrRequestTimeMs);
+            Limelog("Delaying repeated IDR frame request by %llu ms\n", (unsigned long long)delayMs);
+            PltSleepMs((int)delayMs);
+
+            if (stopping || PltIsThreadInterrupted(&requestIdrFrameThread)) {
+                return;
+            }
+        }
+
         // Any pending RFI requests and LTR frame ACK messages are now redundant
         freeBasicLbqList(LbqFlushQueueItems(&referenceFrameControlQueue));
 
         // Request the IDR frame
         requestIdrFrame();
+        lastIdrRequestTimeMs = PltGetMillis();
     }
 }
 

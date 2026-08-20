@@ -44,6 +44,15 @@ static inline uint8_t getMultiFecLastBlockNumber(PNV_VIDEO_PACKET packet) {
            (((packet->multiFecFlags >> 2) & 0x3) << 2);
 }
 
+static inline void setMultiFecBlockNumbers(PNV_VIDEO_PACKET packet, uint8_t currentBlock, uint8_t lastBlock) {
+    packet->multiFecFlags = (packet->multiFecFlags & 0xF0) |
+                            ((currentBlock >> 2) & 0x3) |
+                            (((lastBlock >> 2) & 0x3) << 2);
+    packet->multiFecBlocks = (packet->multiFecBlocks & 0x0F) |
+                             ((currentBlock & 0x3) << 4) |
+                             ((lastBlock & 0x3) << 6);
+}
+
 #define FLAG_EXTENSION 0x10
 
 #define FIXED_RTP_HEADER_SIZE 12
