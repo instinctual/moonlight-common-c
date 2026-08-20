@@ -45,6 +45,12 @@ typedef struct _RTP_VIDEO_QUEUE {
 
     uint32_t lastOosFramePresentationTimestamp;
     bool receivedOosData;
+
+    uint64_t recoveredFecBlocks;
+    uint64_t recoveredDataShards;
+    uint64_t unrecoverableFecBlocks;
+    uint64_t unrecoverableFrames;
+    uint32_t lastUnrecoverableFrameNumber;
 } RTP_VIDEO_QUEUE, *PRTP_VIDEO_QUEUE;
 
 #define RTPF_RET_QUEUED    0
@@ -55,3 +61,4 @@ void RtpvCleanupQueue(PRTP_VIDEO_QUEUE queue);
 int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_QUEUE_ENTRY packetEntry);
 uint32_t RtpvGetCurrentFrameNumber(PRTP_VIDEO_QUEUE queue);
 void RtpvSubmitQueuedPackets(PRTP_VIDEO_QUEUE queue);
+void RtpvLogFecStats(PRTP_VIDEO_QUEUE queue);

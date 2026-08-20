@@ -302,6 +302,8 @@ void stopVideoStream(void) {
     if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
         PltJoinThread(&decoderThread);
     }
+
+    RtpvLogFecStats(&rtpQueue);
     
     if (firstFrameSocket != INVALID_SOCKET) {
         closeSocket(firstFrameSocket);

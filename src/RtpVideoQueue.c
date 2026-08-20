@@ -1,6 +1,8 @@
 #include "Limelight-internal.h"
 #include "rs.h"
 
+#include <inttypes.h>
+
 #if defined(LC_DEBUG) && !defined(LC_FUZZING)
 // This enables FEC validation mode with a synthetic drop
 // and recovered packet checks vs the original input. It
@@ -22,6 +24,7 @@ void RtpvInitializeQueue(PRTP_VIDEO_QUEUE queue) {
 
     queue->currentFrameNumber = 1;
     queue->multiFecCapable = APP_VERSION_AT_LEAST(7, 1, 431);
+    queue->lastUnrecoverableFrameNumber = UINT32_MAX;
 }
 
 static void purgeListEntries(PRTPV_QUEUE_LIST list) {
@@ -38,6 +41,21 @@ static void purgeListEntries(PRTPV_QUEUE_LIST list) {
 void RtpvCleanupQueue(PRTP_VIDEO_QUEUE queue) {
     purgeListEntries(&queue->pendingFecBlockList);
     purgeListEntries(&queue->completedFecBlockList);
+}
+
+void RtpvLogFecStats(PRTP_VIDEO_QUEUE queue) {
+    Limelog("Video FEC recovery: %" PRIu64 " blocks, %" PRIu64 " data shards\n",
+            queue->recoveredFecBlocks, queue->recoveredDataShards);
+    Limelog("Video FEC unrecoverable: %" PRIu64 " blocks, %" PRIu64 " frames\n",
+            queue->unrecoverableFecBlocks, queue->unrecoverableFrames);
+}
+
+static void countUnrecoverableFecBlocks(PRTP_VIDEO_QUEUE queue, uint32_t frameNumber, uint32_t blockCount) {
+    queue->unrecoverableFecBlocks += blockCount;
+    if (queue->lastUnrecoverableFrameNumber != frameNumber) {
+        queue->unrecoverableFrames++;
+        queue->lastUnrecoverableFrameNumber = frameNumber;
+    }
 }
 
 static void insertEntryIntoList(PRTPV_QUEUE_LIST list, PRTPV_QUEUE_ENTRY entry) {
@@ -193,6 +211,7 @@ static int reconstructFrame(PRTP_VIDEO_QUEUE queue) {
     unsigned int totalPackets = queue->bufferDataPackets + queue->bufferParityPackets;
     unsigned int neededPackets = queue->bufferDataPackets;
     int ret;
+    unsigned int missingDataShards = queue->bufferDataPackets - queue->receivedDataPackets;
 
     LC_ASSERT(totalPackets == U16(queue->bufferHighestSequenceNumber - queue->bufferLowestSequenceNumber) + 1U);
     
@@ -457,6 +476,11 @@ cleanup:
 
     if (marks != NULL)
         free(marks);
+
+    if (ret == 0 && missingDataShards != 0) {
+        queue->recoveredFecBlocks++;
+        queue->recoveredDataShards += missingDataShards;
+    }
     
     return ret;
 }
@@ -594,6 +618,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         if (queue->pendingFecBlockList.count != 0) {
             // Report the final status of the FEC queue before dropping this frame
             reportFinalFrameFecStatus(queue);
+            countUnrecoverableFecBlocks(queue, queue->currentFrameNumber, 1);
 
             if (queue->multiFecLastBlockNumber != 0) {
                 Limelog("Unrecoverable frame %d (block %d of %d): %d+%d=%d received < %d needed\n",
@@ -643,6 +668,9 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
                     nvPacket->frameIndex,
                     expectedFecBlockNumber + 1,
                     fecCurrentBlockNumber);
+            countUnrecoverableFecBlocks(queue,
+                                        nvPacket->frameIndex,
+                                        fecCurrentBlockNumber - expectedFecBlockNumber);
 
             // Discard any unsubmitted buffers from the previous frame
             purgeListEntries(&queue->pendingFecBlockList);
@@ -798,4 +826,3 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         return RTPF_RET_QUEUED;
     }
 }
-
