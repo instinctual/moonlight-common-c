@@ -1122,7 +1122,10 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             }
         }
         else {
-            if ((serverInfo->serverCodecModeSupport & SCM_H264_HIGH8_444) && (StreamConfig.supportedVideoFormats & VIDEO_FORMAT_H264_HIGH8_444)) {
+            if ((serverInfo->serverCodecModeSupport & SCM_H264_HIGH10_444) && (StreamConfig.supportedVideoFormats & VIDEO_FORMAT_H264_HIGH10_444)) {
+                NegotiatedVideoFormat = VIDEO_FORMAT_H264_HIGH10_444;
+            }
+            else if ((serverInfo->serverCodecModeSupport & SCM_H264_HIGH8_444) && (StreamConfig.supportedVideoFormats & VIDEO_FORMAT_H264_HIGH8_444)) {
                 NegotiatedVideoFormat = VIDEO_FORMAT_H264_HIGH8_444;
             }
             else {

@@ -273,7 +273,6 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
                                          ML_FF_EXTENDED_FEC_BLOCKS;
         if (StreamConfig.colorSpace == COLORSPACE_IDENTITY_GBR &&
                 StreamConfig.colorRange == COLOR_RANGE_FULL &&
-                (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_10BIT) &&
                 (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_YUV444)) {
             moonlightFeatureFlags |= ML_FF_IDENTITY_GBR_444;
         }
