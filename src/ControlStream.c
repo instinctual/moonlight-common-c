@@ -130,7 +130,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 // A large 4K IDR plus FEC can occupy the configured stream for several hundred
 // milliseconds. Keep retries far enough apart that they cannot overlap and
 // amplify loss into an IDR bitrate storm.
-#define IDR_FRAME_REQUEST_MIN_INTERVAL_MS 500
+#define IDR_FRAME_REQUEST_MIN_INTERVAL_MS 1000
 
 #define IDX_START_A 0
 #define IDX_REQUEST_IDR_FRAME 0
