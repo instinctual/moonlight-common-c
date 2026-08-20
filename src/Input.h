@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "StationConnect.h"
+
 #pragma pack(push, 1)
 
 // netfloat is just a little-endian float in byte form
@@ -194,5 +196,11 @@ typedef struct _SS_CONTROLLER_BATTERY_PACKET {
     uint8_t batteryPercentage;
     uint8_t zero[1]; // Alignment/reserved
 } SS_CONTROLLER_BATTERY_PACKET, *PSS_CONTROLLER_BATTERY_PACKET;
+
+#define SS_RAW_HID_MAGIC 0x55000008
+typedef struct _SS_RAW_HID_PACKET {
+    NV_INPUT_HEADER header;
+    uint8_t data[1];
+} SS_RAW_HID_PACKET, *PSS_RAW_HID_PACKET;
 
 #pragma pack(pop)

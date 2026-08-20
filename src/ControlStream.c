@@ -40,6 +40,8 @@ typedef struct _QUEUED_FRAME_FEC_STATUS {
 
 typedef struct _QUEUED_ASYNC_CALLBACK {
     int typeIndex;
+    unsigned char* variableData;
+    unsigned int variableLength;
     union {
         struct {
             uint16_t controllerNumber;
@@ -123,6 +125,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_RUMBLE_TRIGGER_DATA 9
 #define IDX_SET_MOTION_EVENT 10
 #define IDX_SET_RGB_LED 11
+#define IDX_RAW_HID_CONTROL 12
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -140,6 +143,7 @@ static const short packetTypesGen3[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Raw HID control (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Request IDR frame
@@ -154,6 +158,7 @@ static const short packetTypesGen4[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Raw HID control (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -168,6 +173,7 @@ static const short packetTypesGen5[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Raw HID control (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -182,6 +188,7 @@ static const short packetTypesGen7[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Raw HID control (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0302, // Request IDR frame
@@ -196,6 +203,7 @@ static const short packetTypesGen7Enc[] = {
     0x5500, // Rumble triggers (Sunshine protocol extension)
     0x5501, // Set motion event (Sunshine protocol extension)
     0x5502, // Set RGB LED (Sunshine protocol extension)
+    0x5504, // Raw HID control (StationConnect protocol extension)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -352,6 +360,18 @@ static void freeBasicLbqList(PLINKED_BLOCKING_QUEUE_ENTRY entry) {
     }
 }
 
+static void freeAsyncCallbackList(PLINKED_BLOCKING_QUEUE_ENTRY entry) {
+    PLINKED_BLOCKING_QUEUE_ENTRY nextEntry;
+
+    while (entry != NULL) {
+        PQUEUED_ASYNC_CALLBACK queuedCb = (PQUEUED_ASYNC_CALLBACK)entry->data;
+        nextEntry = entry->flink;
+        free(queuedCb->variableData);
+        free(queuedCb);
+        entry = nextEntry;
+    }
+}
+
 // Cleans up control stream
 void destroyControlStream(void) {
     LC_ASSERT(stopping);
@@ -360,7 +380,7 @@ void destroyControlStream(void) {
     PltCloseEvent(&idrFrameRequiredEvent);
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&invalidReferenceFrameTuples));
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&frameFecStatusQueue));
-    freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
+    freeAsyncCallbackList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
 
     PltDeleteMutex(&enetMutex);
 }
@@ -653,6 +673,9 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
     int err;
 
     LC_ASSERT(AppVersionQuad[0] >= 5);
+    if (paylen < 0) {
+        return false;
+    }
 
     // Only send reliable packets to GFE
     if (!IS_SUNSHINE()) {
@@ -662,12 +685,18 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
     if (encryptedControlStream) {
         PNVCTL_ENCRYPTED_PACKET_HEADER encPacket;
         PNVCTL_ENET_PACKET_HEADER_V2 packet;
-        char tempBuffer[256];
+        char* tempBuffer;
+
+        tempBuffer = malloc(sizeof(*packet) + (size_t)paylen);
+        if (tempBuffer == NULL) {
+            return false;
+        }
 
         enetPacket = enet_packet_create(NULL,
                                         sizeof(*encPacket) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen,
                                         flags);
         if (enetPacket == NULL) {
+            free(tempBuffer);
             return false;
         }
 
@@ -681,7 +710,6 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
         encPacket->seq = currentEnetSequenceNumber++;
 
         // Construct the plaintext data for encryption
-        LC_ASSERT(sizeof(*packet) + paylen < sizeof(tempBuffer));
         packet = (PNVCTL_ENET_PACKET_HEADER_V2)tempBuffer;
         packet->type = ptype;
         packet->payloadLength = paylen;
@@ -690,10 +718,12 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
         // Encrypt the data into the final packet (and byteswap for BE machines)
         if (!encryptControlMessage(encPacket, packet)) {
             Limelog("Failed to encrypt control stream message\n");
+            free(tempBuffer);
             enet_packet_destroy(enetPacket);
             PltUnlockMutex(&enetMutex);
             return false;
         }
+        free(tempBuffer);
 
         // enetMutex still locked here
     }
@@ -961,12 +991,18 @@ static void asyncCallbackThreadFunc(void* context) {
                                                   queuedCb->data.setMotionEventState.motionType,
                                                   queuedCb->data.setMotionEventState.reportRateHz);
             break;
+        case IDX_RAW_HID_CONTROL:
+            if (ListenerCallbacks.rawHidControl != NULL) {
+                ListenerCallbacks.rawHidControl(queuedCb->variableData, queuedCb->variableLength);
+            }
+            break;
         default:
             // Unhandled packet type from queueAsyncCallback()
             LC_ASSERT(false);
             break;
         }
 
+        free(queuedCb->variableData);
         free(queuedCb);
     }
 }
@@ -976,6 +1012,7 @@ static bool needsAsyncCallback(unsigned short packetType) {
            packetType == packetTypes[IDX_RUMBLE_TRIGGER_DATA] ||
            packetType == packetTypes[IDX_SET_MOTION_EVENT] ||
            packetType == packetTypes[IDX_SET_RGB_LED] ||
+           packetType == packetTypes[IDX_RAW_HID_CONTROL] ||
            packetType == packetTypes[IDX_HDR_INFO];
 }
 
@@ -986,7 +1023,7 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
 
     LC_ASSERT(needsAsyncCallback(ctlHdr->type));
 
-    queuedCb = malloc(sizeof(*queuedCb));
+    queuedCb = calloc(1, sizeof(*queuedCb));
     if (!queuedCb) {
         return;
     }
@@ -1027,6 +1064,21 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
     else if (ctlHdr->type == packetTypes[IDX_HDR_INFO]) {
         queuedCb->typeIndex = IDX_HDR_INFO;
     }
+    else if (ctlHdr->type == packetTypes[IDX_RAW_HID_CONTROL]) {
+        queuedCb->variableLength = (unsigned int)(packetLength - sizeof(*ctlHdr));
+        if (queuedCb->variableLength < sizeof(SC_RAW_HID_WIRE_HEADER) ||
+                queuedCb->variableLength > sizeof(SC_RAW_HID_WIRE_HEADER) + SC_RAW_HID_MAX_PAYLOAD_SIZE) {
+            free(queuedCb);
+            return;
+        }
+        queuedCb->variableData = malloc(queuedCb->variableLength);
+        if (queuedCb->variableData == NULL) {
+            free(queuedCb);
+            return;
+        }
+        memcpy(queuedCb->variableData, ctlHdr + 1, queuedCb->variableLength);
+        queuedCb->typeIndex = IDX_RAW_HID_CONTROL;
+    }
     else {
         // Unhandled packet type from needsAsyncCallback()
         LC_ASSERT(false);
@@ -1037,6 +1089,7 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
     err = LbqOfferQueueItem(&asyncCallbackQueue, queuedCb, &queuedCb->entry);
     if (err != LBQ_SUCCESS) {
         Limelog("Failed to queue async callback: %d\n", err);
+        free(queuedCb->variableData);
         free(queuedCb);
     }
 }
