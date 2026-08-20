@@ -397,6 +397,8 @@ cleanup_packets:
 
                 PNV_VIDEO_PACKET nvPacket = (PNV_VIDEO_PACKET)(((char*)rtpPacket) + dataOffset);
                 nvPacket->frameIndex = queue->currentFrameNumber;
+                nvPacket->multiFecFlags = 0x10;
+                nvPacket->multiFecBlocks = 0;
                 setMultiFecBlockNumbers(nvPacket,
                                         queue->multiFecCurrentBlockNumber,
                                         queue->multiFecLastBlockNumber);
