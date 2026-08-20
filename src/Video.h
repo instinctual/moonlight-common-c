@@ -34,6 +34,16 @@ typedef struct _NV_VIDEO_PACKET {
     uint32_t fecInfo;
 } NV_VIDEO_PACKET, *PNV_VIDEO_PACKET;
 
+static inline uint8_t getMultiFecCurrentBlockNumber(PNV_VIDEO_PACKET packet) {
+    return ((packet->multiFecBlocks >> 4) & 0x3) |
+           ((packet->multiFecFlags & 0x3) << 2);
+}
+
+static inline uint8_t getMultiFecLastBlockNumber(PNV_VIDEO_PACKET packet) {
+    return ((packet->multiFecBlocks >> 6) & 0x3) |
+           (((packet->multiFecFlags >> 2) & 0x3) << 2);
+}
+
 #define FLAG_EXTENSION 0x10
 
 #define FIXED_RTP_HEADER_SIZE 12

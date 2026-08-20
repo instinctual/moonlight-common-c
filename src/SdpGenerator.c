@@ -269,7 +269,8 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
 
     if (IS_SUNSHINE()) {
         // Send client feature flags to Sunshine hosts
-        uint32_t moonlightFeatureFlags = ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1;
+        uint32_t moonlightFeatureFlags = ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1 |
+                                         ML_FF_EXTENDED_FEC_BLOCKS;
         if (StreamConfig.colorSpace == COLORSPACE_IDENTITY_GBR &&
                 StreamConfig.colorRange == COLOR_RANGE_FULL &&
                 (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_10BIT) &&
