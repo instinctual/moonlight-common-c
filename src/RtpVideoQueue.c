@@ -365,9 +365,9 @@ cleanup_packets:
 
                 PNV_VIDEO_PACKET nvPacket = (PNV_VIDEO_PACKET)(((char*)rtpPacket) + dataOffset);
                 nvPacket->frameIndex = queue->currentFrameNumber;
-                nvPacket->multiFecBlocks =
-                        ((queue->multiFecLastBlockNumber << 2) | queue->multiFecCurrentBlockNumber) << 4;
-                // TODO: nvPacket->multiFecFlags?
+                setMultiFecBlockNumbers(nvPacket,
+                                        queue->multiFecCurrentBlockNumber,
+                                        queue->multiFecLastBlockNumber);
 
 #ifdef FEC_VALIDATION_MODE
                 if (i == dropIndex && droppedRtpPacket != NULL) {
