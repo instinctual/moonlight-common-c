@@ -622,7 +622,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
 #endif
 
     uint32_t fecIndex = (nvPacket->fecInfo & 0x3FF000) >> 12;
-    uint8_t fecCurrentBlockNumber = (nvPacket->multiFecBlocks >> 4) & 0x3;
+    uint8_t fecCurrentBlockNumber = getMultiFecCurrentBlockNumber(nvPacket);
 
     if (nvPacket->frameIndex == queue->currentFrameNumber && fecCurrentBlockNumber < queue->multiFecCurrentBlockNumber) {
         // Reject FEC blocks behind our current block number
@@ -757,7 +757,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         queue->bufferFirstParitySequenceNumber = U16(queue->bufferLowestSequenceNumber + queue->bufferDataPackets);
         queue->bufferHighestSequenceNumber = U16(queue->bufferFirstParitySequenceNumber + queue->bufferParityPackets - 1);
         queue->multiFecCurrentBlockNumber = fecCurrentBlockNumber;
-        queue->multiFecLastBlockNumber = (nvPacket->multiFecBlocks >> 6) & 0x3;
+        queue->multiFecLastBlockNumber = getMultiFecLastBlockNumber(nvPacket);
     }
 
     // Reject packets above our FEC queue valid sequence number range
@@ -775,7 +775,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
 
     // Multi-block FEC details must remain the same within a single frame
     LC_ASSERT_VT(fecCurrentBlockNumber == queue->multiFecCurrentBlockNumber);
-    LC_ASSERT_VT(((nvPacket->multiFecBlocks >> 6) & 0x3) == queue->multiFecLastBlockNumber);
+    LC_ASSERT_VT(getMultiFecLastBlockNumber(nvPacket) == queue->multiFecLastBlockNumber);
 
     LC_ASSERT_VT((nvPacket->flags & FLAG_EOF) || length - dataOffset == StreamConfig.packetSize);
     if (!queuePacket(queue, packetEntry, packet, length, !isBefore16(packet->sequenceNumber, queue->bufferFirstParitySequenceNumber), false)) {

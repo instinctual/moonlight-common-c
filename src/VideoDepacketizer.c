@@ -754,8 +754,8 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
     currentPos.offset = 0;
     currentPos.length = length - sizeof(*videoPacket);
 
-    fecCurrentBlockNumber = (videoPacket->multiFecBlocks >> 4) & 0x3;
-    fecLastBlockNumber = (videoPacket->multiFecBlocks >> 6) & 0x3;
+    fecCurrentBlockNumber = getMultiFecCurrentBlockNumber(videoPacket);
+    fecLastBlockNumber = getMultiFecLastBlockNumber(videoPacket);
     frameIndex = videoPacket->frameIndex;
     flags = videoPacket->flags;
     firstPacket = isFirstPacket(flags, fecCurrentBlockNumber);
