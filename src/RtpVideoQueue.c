@@ -50,12 +50,23 @@ void RtpvLogFecStats(PRTP_VIDEO_QUEUE queue) {
             queue->unrecoverableFecBlocks, queue->unrecoverableFrames);
 }
 
+static void countUnrecoverableFrameRange(PRTP_VIDEO_QUEUE queue, uint32_t firstFrameNumber, uint32_t lastFrameNumber) {
+    LC_ASSERT(firstFrameNumber <= lastFrameNumber);
+
+    if (queue->lastUnrecoverableFrameNumber >= firstFrameNumber &&
+            queue->lastUnrecoverableFrameNumber <= lastFrameNumber) {
+        firstFrameNumber = queue->lastUnrecoverableFrameNumber + 1;
+    }
+
+    if (firstFrameNumber <= lastFrameNumber) {
+        queue->unrecoverableFrames += lastFrameNumber - firstFrameNumber + 1;
+        queue->lastUnrecoverableFrameNumber = lastFrameNumber;
+    }
+}
+
 static void countUnrecoverableFecBlocks(PRTP_VIDEO_QUEUE queue, uint32_t frameNumber, uint32_t blockCount) {
     queue->unrecoverableFecBlocks += blockCount;
-    if (queue->lastUnrecoverableFrameNumber != frameNumber) {
-        queue->unrecoverableFrames++;
-        queue->lastUnrecoverableFrameNumber = frameNumber;
-    }
+    countUnrecoverableFrameRange(queue, frameNumber, frameNumber);
 }
 
 static void insertEntryIntoList(PRTPV_QUEUE_LIST list, PRTPV_QUEUE_ENTRY entry) {
@@ -701,6 +712,12 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         // after successfully processing a frame.
         if (queue->currentFrameNumber != nvPacket->frameIndex) {
             LC_ASSERT_VT(queue->currentFrameNumber < nvPacket->frameIndex);
+
+            // Entirely missing frames never create an FEC block in this queue, so
+            // account for their frame-number gap separately from failed FEC blocks.
+            countUnrecoverableFrameRange(queue,
+                                         queue->currentFrameNumber,
+                                         nvPacket->frameIndex - 1);
 
             // If the frame immediately preceding this one was lost, we may have already
             // reported it using our speculative RFI logic. Don't report it again.
