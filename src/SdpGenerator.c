@@ -375,6 +375,13 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (IS_SUNSHINE()) {
             snprintf(payloadStr, sizeof(payloadStr), "%u", StreamConfig.bitrate);
             err |= addAttributeString(&optionHead, "x-ml-video.configuredBitrateKbps", payloadStr);
+
+            // StationConnect treats this as the exact encoder target rather
+            // than a total network budget. This makes the first encoder agree
+            // with the toolbar before the live control stream is available.
+            if (SunshineFeatureFlags & LI_FF_ENCODER_TARGET_ACK) {
+                err |= addAttributeString(&optionHead, "x-sc-video.encoderTargetKbps", payloadStr);
+            }
         }
     }
     else {

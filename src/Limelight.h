@@ -478,6 +478,10 @@ typedef void(*ConnListenerSetControllerLED)(uint16_t controllerNumber, uint8_t r
 // the host. The data is valid only for the duration of the callback.
 typedef void(*ConnListenerRawHidControl)(const unsigned char* data, unsigned int length);
 
+// This callback confirms the video bitrate target accepted by a StationConnect
+// host and the effective encoder limits after host-side policy is applied.
+typedef void(*ConnListenerVideoBitrateApplied)(uint32_t requestedKbps, uint32_t appliedKbps, uint32_t peakKbps);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -492,6 +496,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetMotionEventState setMotionEventState;
     ConnListenerSetControllerLED setControllerLED;
     ConnListenerRawHidControl rawHidControl;
+    ConnListenerVideoBitrateApplied videoBitrateApplied;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
@@ -966,6 +971,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
 #define LI_FF_RAW_HID_TABLET          0x04 // StationConnect encrypted raw HID tablet transport supported
 #define LI_FF_DYNAMIC_VIDEO_BITRATE   0x08 // StationConnect active-session video bitrate updates supported
+#define LI_FF_ENCODER_TARGET_ACK      0x10 // StationConnect exact startup target and applied-target acknowledgement supported
 uint32_t LiGetHostFeatureFlags(void);
 
 // Requests a new video encoder bitrate for the active stream. The host applies
