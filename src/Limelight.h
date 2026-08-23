@@ -965,7 +965,13 @@ void LiRequestIdrFrame(void);
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
 #define LI_FF_RAW_HID_TABLET          0x04 // StationConnect encrypted raw HID tablet transport supported
+#define LI_FF_DYNAMIC_VIDEO_BITRATE   0x08 // StationConnect active-session video bitrate updates supported
 uint32_t LiGetHostFeatureFlags(void);
+
+// Requests a new video encoder bitrate for the active stream. The host applies
+// the update without reconnecting. Returns 0 on success or a negative value if
+// the host does not advertise LI_FF_DYNAMIC_VIDEO_BITRATE or the request fails.
+int LiSetVideoBitrate(int bitrateKbps);
 
 // Sends one complete SC_RAW_HID_WIRE_HEADER frame and payload to a compatible
 // Sunshine host over the reliable encrypted control stream.

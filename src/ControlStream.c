@@ -126,6 +126,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_SET_MOTION_EVENT 10
 #define IDX_SET_RGB_LED 11
 #define IDX_RAW_HID_CONTROL 12
+#define IDX_SET_VIDEO_BITRATE 13
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -144,6 +145,7 @@ static const short packetTypesGen3[] = {
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
     -1,     // Raw HID control (unused)
+    -1,     // Dynamic video bitrate (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Request IDR frame
@@ -159,6 +161,7 @@ static const short packetTypesGen4[] = {
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
     -1,     // Raw HID control (unused)
+    -1,     // Dynamic video bitrate (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -174,6 +177,7 @@ static const short packetTypesGen5[] = {
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
     -1,     // Raw HID control (unused)
+    -1,     // Dynamic video bitrate (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -189,6 +193,7 @@ static const short packetTypesGen7[] = {
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
     -1,     // Raw HID control (unused)
+    -1,     // Dynamic video bitrate (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0302, // Request IDR frame
@@ -204,6 +209,7 @@ static const short packetTypesGen7Enc[] = {
     0x5501, // Set motion event (Sunshine protocol extension)
     0x5502, // Set RGB LED (Sunshine protocol extension)
     0x5504, // Raw HID control (StationConnect protocol extension)
+    0x5505, // Dynamic video bitrate (StationConnect protocol extension)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -2041,4 +2047,29 @@ bool LiGetHdrMetadata(PSS_HDR_METADATA metadata) {
 
     *metadata = hdrMetadata;
     return true;
+}
+
+int LiSetVideoBitrate(int bitrateKbps) {
+    uint32_t payload;
+
+    if (!(SunshineFeatureFlags & LI_FF_DYNAMIC_VIDEO_BITRATE) ||
+            !encryptedControlStream || packetTypes[IDX_SET_VIDEO_BITRATE] < 0) {
+        return -1;
+    }
+
+    if (bitrateKbps < 500 || bitrateKbps > 500000) {
+        return -1;
+    }
+
+    payload = LE32((uint32_t)bitrateKbps);
+    if (!sendMessageAndForget(packetTypes[IDX_SET_VIDEO_BITRATE],
+                              sizeof(payload),
+                              &payload,
+                              CTRL_CHANNEL_GENERIC,
+                              ENET_PACKET_FLAG_RELIABLE,
+                              false)) {
+        return -1;
+    }
+
+    return 0;
 }
