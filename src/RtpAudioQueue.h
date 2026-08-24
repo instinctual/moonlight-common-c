@@ -2,7 +2,7 @@
 
 #include "Video.h"
 
-#include "rs.h"
+#include <rs.h>
 
 // Maximum time to wait for an OOS data/FEC shard
 // after the entire FEC block should have been received
