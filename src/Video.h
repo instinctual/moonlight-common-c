@@ -51,6 +51,19 @@ static inline void setMultiFecBlockNumbers(PNV_VIDEO_PACKET packet, uint8_t curr
                              ((lastBlock & 0x3) << 6);
 }
 
+static inline float getVideoDataPacketLossPercentage(uint64_t expectedDataPackets,
+                                                      uint64_t missingDataPackets) {
+    if (expectedDataPackets == 0) {
+        return -1.0f;
+    }
+
+    if (missingDataPackets > expectedDataPackets) {
+        missingDataPackets = expectedDataPackets;
+    }
+
+    return (float)missingDataPackets * 100.0f / (float)expectedDataPackets;
+}
+
 #define FLAG_EXTENSION 0x10
 
 #define FIXED_RTP_HEADER_SIZE 12

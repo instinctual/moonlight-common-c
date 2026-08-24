@@ -140,6 +140,38 @@ static void reportFinalFrameFecStatus(PRTP_VIDEO_QUEUE queue) {
     connectionSendFrameFecStatus(&fecStatus);
 }
 
+static void reportVideoPacketLossStats(PRTP_VIDEO_QUEUE queue) {
+    uint64_t now;
+
+    LC_ASSERT(queue->receivedDataPackets <= queue->bufferDataPackets);
+
+    if (queue->bufferDataPackets == 0) {
+        return;
+    }
+
+    now = PltGetMillis();
+    if (queue->packetLossWindowStartMs == 0) {
+        queue->packetLossWindowStartMs = now;
+    }
+
+    queue->packetLossExpectedDataPackets += queue->bufferDataPackets;
+    queue->packetLossMissingDataPackets +=
+            queue->bufferDataPackets - queue->receivedDataPackets;
+
+    if (now - queue->packetLossWindowStartMs >= 1000) {
+        if (ListenerCallbacks.videoPacketLossUpdate != NULL) {
+            ListenerCallbacks.videoPacketLossUpdate(
+                        getVideoDataPacketLossPercentage(
+                            queue->packetLossExpectedDataPackets,
+                            queue->packetLossMissingDataPackets));
+        }
+
+        queue->packetLossWindowStartMs = now;
+        queue->packetLossExpectedDataPackets = 0;
+        queue->packetLossMissingDataPackets = 0;
+    }
+}
+
 // newEntry is contained within the packet buffer so we free the whole entry by freeing entry->packet
 static bool queuePacket(PRTP_VIDEO_QUEUE queue, PRTPV_QUEUE_ENTRY newEntry, PRTP_PACKET packet, int length, bool isParity, bool isFecRecovery) {
     PRTPV_QUEUE_ENTRY entry;
@@ -280,6 +312,7 @@ static int reconstructFrame(PRTP_VIDEO_QUEUE queue) {
     if (queue->receivedDataPackets == queue->bufferDataPackets) {
 #endif
         // We've received a full frame with no need for FEC.
+        reportVideoPacketLossStats(queue);
         return 0;
     }
 
@@ -501,6 +534,10 @@ cleanup:
         queue->recoveredFecBlocks++;
         queue->recoveredDataShards += missingDataShards;
     }
+
+    if (ret == 0) {
+        reportVideoPacketLossStats(queue);
+    }
     
     return ret;
 }
@@ -638,6 +675,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         if (queue->pendingFecBlockList.count != 0) {
             // Report the final status of the FEC queue before dropping this frame
             reportFinalFrameFecStatus(queue);
+            reportVideoPacketLossStats(queue);
             countUnrecoverableFecBlocks(queue, queue->currentFrameNumber, 1);
 
             if (queue->multiFecLastBlockNumber != 0) {

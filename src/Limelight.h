@@ -482,6 +482,12 @@ typedef void(*ConnListenerRawHidControl)(const unsigned char* data, unsigned int
 // host and the effective encoder limits after host-side policy is applied.
 typedef void(*ConnListenerVideoBitrateApplied)(uint32_t requestedKbps, uint32_t appliedKbps, uint32_t peakKbps);
 
+// This callback reports a rolling video packet-loss sample. The calculation
+// covers original video data shards only; parity shards are deliberately
+// excluded because a receiver can complete a lossless block before all
+// optional parity arrives.
+typedef void(*ConnListenerVideoPacketLossUpdate)(float packetLossPercent);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -497,6 +503,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetControllerLED setControllerLED;
     ConnListenerRawHidControl rawHidControl;
     ConnListenerVideoBitrateApplied videoBitrateApplied;
+    ConnListenerVideoPacketLossUpdate videoPacketLossUpdate;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
