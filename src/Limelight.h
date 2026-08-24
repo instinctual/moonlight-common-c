@@ -972,6 +972,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_RAW_HID_TABLET          0x04 // StationConnect encrypted raw HID tablet transport supported
 #define LI_FF_DYNAMIC_VIDEO_BITRATE   0x08 // StationConnect active-session video bitrate updates supported
 #define LI_FF_ENCODER_TARGET_ACK      0x10 // StationConnect exact startup target and applied-target acknowledgement supported
+#define LI_FF_RAW_HID_FOCUS_SUSPEND   0x20 // StationConnect preserves raw HID endpoints while client focus is suspended
 uint32_t LiGetHostFeatureFlags(void);
 
 // Requests a new video encoder bitrate for the active stream. The host applies
