@@ -224,8 +224,10 @@ typedef struct _DECODE_UNIT {
 // Passed in StreamConfiguration.supportedVideoFormats to specify supported codecs
 // and to DecoderRendererSetup() to specify selected codec.
 #define VIDEO_FORMAT_H264            0x0001 // H.264 High Profile
+#define VIDEO_FORMAT_H264_HIGH8_422  0x0002 // H.264 High 4:2:2 8-bit Profile
 #define VIDEO_FORMAT_H264_HIGH8_444  0x0004 // H.264 High 4:4:4 8-bit Profile
 #define VIDEO_FORMAT_H264_HIGH10_444 0x0008 // H.264 High 4:4:4 10-bit Profile
+#define VIDEO_FORMAT_H264_HIGH10_422 0x0010 // H.264 High 4:2:2 10-bit Profile
 #define VIDEO_FORMAT_H265            0x0100 // HEVC Main Profile
 #define VIDEO_FORMAT_H265_MAIN10     0x0200 // HEVC Main10 Profile
 #define VIDEO_FORMAT_H265_REXT8_444  0x0400 // HEVC RExt 4:4:4 8-bit Profile
@@ -236,11 +238,12 @@ typedef struct _DECODE_UNIT {
 #define VIDEO_FORMAT_AV1_HIGH10_444  0x8000 // AV1 High 4:4:4 10-bit profile
 
 // Masks for clients to use to match video codecs without profile-specific details.
-#define VIDEO_FORMAT_MASK_H264   0x000F
+#define VIDEO_FORMAT_MASK_H264   0x001F
 #define VIDEO_FORMAT_MASK_H265   0x0F00
 #define VIDEO_FORMAT_MASK_AV1    0xF000
-#define VIDEO_FORMAT_MASK_10BIT  0xAA08
+#define VIDEO_FORMAT_MASK_10BIT  0xAA18
 #define VIDEO_FORMAT_MASK_YUV444 0xCC0C
+#define VIDEO_FORMAT_MASK_YUV422 0x0012
 
 // If set in the renderer capabilities field, this flag will cause audio/video data to
 // be submitted directly from the receive thread. This should only be specified if the
@@ -517,13 +520,16 @@ void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks)
 #define SCM_AV1_HIGH10_444  0x00400000 // Sunshine extension
 #define SCM_IDENTITY_GBR_444 0x00800000 // StationConnect identity G,B,R plane mapping
 #define SCM_H264_HIGH10_444 0x01000000 // StationConnect H.264 High 4:4:4 10-bit extension
+#define SCM_H264_HIGH8_422  0x02000000 // StationConnect H.264 High 4:2:2 8-bit extension
+#define SCM_H264_HIGH10_422 0x04000000 // StationConnect H.264 High 4:2:2 10-bit extension
 
 // SCM masks to identify various codec capabilities
-#define SCM_MASK_H264   (SCM_H264 | SCM_H264_HIGH8_444 | SCM_H264_HIGH10_444)
+#define SCM_MASK_H264   (SCM_H264 | SCM_H264_HIGH8_422 | SCM_H264_HIGH8_444 | SCM_H264_HIGH10_422 | SCM_H264_HIGH10_444)
 #define SCM_MASK_HEVC   (SCM_HEVC | SCM_HEVC_MAIN10 | SCM_HEVC_REXT8_444 | SCM_HEVC_REXT10_444)
 #define SCM_MASK_AV1    (SCM_AV1_MAIN8 | SCM_AV1_MAIN10 | SCM_AV1_HIGH8_444 | SCM_AV1_HIGH10_444)
-#define SCM_MASK_10BIT  (SCM_H264_HIGH10_444 | SCM_HEVC_MAIN10 | SCM_HEVC_REXT10_444 | SCM_AV1_MAIN10 | SCM_AV1_HIGH10_444)
+#define SCM_MASK_10BIT  (SCM_H264_HIGH10_422 | SCM_H264_HIGH10_444 | SCM_HEVC_MAIN10 | SCM_HEVC_REXT10_444 | SCM_AV1_MAIN10 | SCM_AV1_HIGH10_444)
 #define SCM_MASK_YUV444 (SCM_H264_HIGH8_444 | SCM_H264_HIGH10_444 | SCM_HEVC_REXT8_444 | SCM_HEVC_REXT10_444 | SCM_AV1_HIGH8_444 | SCM_AV1_HIGH10_444)
+#define SCM_MASK_YUV422 (SCM_H264_HIGH8_422 | SCM_H264_HIGH10_422)
 
 typedef struct _SERVER_INFORMATION {
     // Server host name or IP address in text form
