@@ -313,6 +313,9 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_YUV444) {
             err |= addAttributeString(&optionHead, "x-ss-video[0].chromaSamplingType", "1");
         }
+        else if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_YUV422) {
+            err |= addAttributeString(&optionHead, "x-ss-video[0].chromaSamplingType", "2");
+        }
         else {
             err |= addAttributeString(&optionHead, "x-ss-video[0].chromaSamplingType", "0");
         }
