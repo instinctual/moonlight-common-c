@@ -1024,6 +1024,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_RAW_HID_TABLET          0x04 // StationConnect encrypted raw HID tablet transport supported
 #define LI_FF_RAW_HID_FOCUS_SUSPEND   0x20 // StationConnect preserves raw HID endpoints while client focus is suspended
 #define LI_FF_LOCAL_CURSOR             SC_CURSOR_HOST_FEATURE_FLAG // StationConnect host cursor shape/hotspot transport supported
+#define LI_FF_CURSOR_POSITION          SC_CURSOR_POSITION_HOST_FEATURE_FLAG // StationConnect host-authoritative cursor position transport supported
 uint32_t LiGetHostFeatureFlags(void);
 
 #ifdef __cplusplus
