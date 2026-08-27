@@ -494,6 +494,10 @@ typedef void(*ConnListenerVideoBitrateApplied)(uint32_t requestedKbps, uint32_t 
 // image. The data is valid only for the duration of the callback.
 typedef void(*ConnListenerCursorChunk)(const unsigned char* data, unsigned int length);
 
+// This callback receives one validated StationConnect cursor-position frame.
+// The data is valid only for the duration of the callback.
+typedef void(*ConnListenerCursorPosition)(const unsigned char* data, unsigned int length);
+
 // This callback reports a rolling video packet-loss sample. The calculation
 // covers original video data shards only; parity shards are deliberately
 // excluded because a receiver can complete a lossless block before all
@@ -516,6 +520,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerRawHidControl rawHidControl;
     ConnListenerVideoBitrateApplied videoBitrateApplied;
     ConnListenerCursorChunk cursorChunk;
+    ConnListenerCursorPosition cursorPosition;
     ConnListenerVideoPacketLossUpdate videoPacketLossUpdate;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
@@ -1041,6 +1046,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_ENCODER_TARGET_ACK      0x10 // StationConnect exact startup target and applied-target acknowledgement supported
 #define LI_FF_RAW_HID_FOCUS_SUSPEND   0x20 // StationConnect preserves raw HID endpoints while client focus is suspended
 #define LI_FF_LOCAL_CURSOR             SC_CURSOR_HOST_FEATURE_FLAG // StationConnect host cursor shape/hotspot transport supported
+#define LI_FF_CURSOR_POSITION          SC_CURSOR_POSITION_HOST_FEATURE_FLAG // StationConnect host-authoritative cursor position transport supported
 uint32_t LiGetHostFeatureFlags(void);
 
 // Requests a new video encoder bitrate for the active stream. The host applies

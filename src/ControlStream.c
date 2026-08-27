@@ -139,6 +139,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_SET_VIDEO_BITRATE 13
 #define IDX_VIDEO_BITRATE_APPLIED 14
 #define IDX_CURSOR_SHAPE 15
+#define IDX_CURSOR_POSITION 16
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -160,6 +161,7 @@ static const short packetTypesGen3[] = {
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
     -1,     // Local cursor shape (unused)
+    -1,     // Local cursor position (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Request IDR frame
@@ -178,6 +180,7 @@ static const short packetTypesGen4[] = {
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
     -1,     // Local cursor shape (unused)
+    -1,     // Local cursor position (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -196,6 +199,7 @@ static const short packetTypesGen5[] = {
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
     -1,     // Local cursor shape (unused)
+    -1,     // Local cursor position (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -214,6 +218,7 @@ static const short packetTypesGen7[] = {
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
     -1,     // Local cursor shape (unused)
+    -1,     // Local cursor position (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0302, // Request IDR frame
@@ -232,6 +237,7 @@ static const short packetTypesGen7Enc[] = {
     0x5505, // Dynamic video bitrate (StationConnect protocol extension)
     0x5506, // Applied video bitrate (StationConnect protocol extension)
     0x5507, // Local cursor shape (StationConnect protocol extension)
+    0x5508, // Local cursor position (StationConnect protocol extension)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -1060,6 +1066,20 @@ static void asyncCallbackThreadFunc(void* context) {
                 ListenerCallbacks.cursorChunk(queuedCb->variableData, queuedCb->variableLength);
             }
             break;
+        case IDX_CURSOR_POSITION:
+            while (LbqPeekQueueElement(&asyncCallbackQueue, (void**)&nextCb) == LBQ_SUCCESS &&
+                    nextCb->typeIndex == queuedCb->typeIndex) {
+                if (LbqPollQueueElement(&asyncCallbackQueue, (void**)&nextCb) != LBQ_SUCCESS) {
+                    break;
+                }
+                free(queuedCb->variableData);
+                free(queuedCb);
+                queuedCb = nextCb;
+            }
+            if (ListenerCallbacks.cursorPosition != NULL) {
+                ListenerCallbacks.cursorPosition(queuedCb->variableData, queuedCb->variableLength);
+            }
+            break;
         default:
             // Unhandled packet type from queueAsyncCallback()
             LC_ASSERT(false);
@@ -1079,6 +1099,7 @@ static bool needsAsyncCallback(unsigned short packetType) {
            packetType == packetTypes[IDX_RAW_HID_CONTROL] ||
            packetType == packetTypes[IDX_VIDEO_BITRATE_APPLIED] ||
            packetType == packetTypes[IDX_CURSOR_SHAPE] ||
+           packetType == packetTypes[IDX_CURSOR_POSITION] ||
            packetType == packetTypes[IDX_HDR_INFO];
 }
 
@@ -1169,6 +1190,20 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
         }
         memcpy(queuedCb->variableData, ctlHdr + 1, queuedCb->variableLength);
         queuedCb->typeIndex = IDX_CURSOR_SHAPE;
+    }
+    else if (ctlHdr->type == packetTypes[IDX_CURSOR_POSITION]) {
+        queuedCb->variableLength = (unsigned int)(packetLength - sizeof(*ctlHdr));
+        if (queuedCb->variableLength != sizeof(SC_CURSOR_POSITION_WIRE_MESSAGE)) {
+            free(queuedCb);
+            return;
+        }
+        queuedCb->variableData = malloc(queuedCb->variableLength);
+        if (queuedCb->variableData == NULL) {
+            free(queuedCb);
+            return;
+        }
+        memcpy(queuedCb->variableData, ctlHdr + 1, queuedCb->variableLength);
+        queuedCb->typeIndex = IDX_CURSOR_POSITION;
     }
     else {
         // Unhandled packet type from needsAsyncCallback()

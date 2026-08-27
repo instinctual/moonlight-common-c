@@ -18,10 +18,15 @@
 #define SC_CURSOR_MAX_CHUNK_SIZE (48U * 1024U)
 #define SC_CURSOR_CLIENT_FEATURE_FLAG 0x10U
 #define SC_CURSOR_HOST_FEATURE_FLAG 0x40U
+#define SC_CURSOR_POSITION_CLIENT_FEATURE_FLAG 0x20U
+#define SC_CURSOR_POSITION_HOST_FEATURE_FLAG 0x80U
 
 #define SC_CURSOR_FLAG_VISIBLE 0x00000001U
 #define SC_CURSOR_FLAG_FIRST_CHUNK 0x00000002U
 #define SC_CURSOR_FLAG_LAST_CHUNK 0x00000004U
+
+#define SC_CURSOR_POSITION_WIRE_MAGIC 0x53434350U
+#define SC_CURSOR_POSITION_WIRE_VERSION 1U
 
 typedef enum _SC_RAW_HID_MESSAGE_TYPE {
     SC_RAW_HID_DEVICE = 1,
@@ -77,5 +82,16 @@ typedef struct _SC_CURSOR_WIRE_HEADER {
     uint32_t chunkOffset;
     uint32_t chunkSize;
 } SC_CURSOR_WIRE_HEADER, *PSC_CURSOR_WIRE_HEADER;
+
+typedef struct _SC_CURSOR_POSITION_WIRE_MESSAGE {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t reserved;
+    uint64_t sequence;
+    uint32_t x;
+    uint32_t y;
+    uint32_t frameWidth;
+    uint32_t frameHeight;
+} SC_CURSOR_POSITION_WIRE_MESSAGE, *PSC_CURSOR_POSITION_WIRE_MESSAGE;
 
 #pragma pack(pop)
