@@ -9,6 +9,20 @@
 #define SC_RAW_HID_MAX_REPORT_SIZE 4096U
 #define SC_RAW_HID_MAX_PAYLOAD_SIZE (SC_RAW_HID_MAX_REPORT_SIZE + 64U)
 
+#define SC_CURSOR_WIRE_MAGIC 0x53434352U
+#define SC_CURSOR_WIRE_VERSION 1U
+#define SC_CURSOR_PIXEL_FORMAT_ARGB8888 1U
+#define SC_CURSOR_MAX_DIMENSION 512U
+#define SC_CURSOR_MAX_IMAGE_SIZE \
+    (SC_CURSOR_MAX_DIMENSION * SC_CURSOR_MAX_DIMENSION * 4U)
+#define SC_CURSOR_MAX_CHUNK_SIZE (48U * 1024U)
+#define SC_CURSOR_CLIENT_FEATURE_FLAG 0x10U
+#define SC_CURSOR_HOST_FEATURE_FLAG 0x40U
+
+#define SC_CURSOR_FLAG_VISIBLE 0x00000001U
+#define SC_CURSOR_FLAG_FIRST_CHUNK 0x00000002U
+#define SC_CURSOR_FLAG_LAST_CHUNK 0x00000004U
+
 typedef enum _SC_RAW_HID_MESSAGE_TYPE {
     SC_RAW_HID_DEVICE = 1,
     SC_RAW_HID_DESCRIPTOR = 2,
@@ -48,5 +62,20 @@ typedef struct _SC_RAW_HID_DEVICE_MESSAGE {
     char physical[64];
     char unique[64];
 } SC_RAW_HID_DEVICE_MESSAGE, *PSC_RAW_HID_DEVICE_MESSAGE;
+
+typedef struct _SC_CURSOR_WIRE_HEADER {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t pixelFormat;
+    uint32_t flags;
+    uint64_t generation;
+    uint32_t width;
+    uint32_t height;
+    uint32_t hotspotX;
+    uint32_t hotspotY;
+    uint32_t imageSize;
+    uint32_t chunkOffset;
+    uint32_t chunkSize;
+} SC_CURSOR_WIRE_HEADER, *PSC_CURSOR_WIRE_HEADER;
 
 #pragma pack(pop)
