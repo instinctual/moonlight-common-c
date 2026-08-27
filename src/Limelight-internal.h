@@ -89,6 +89,7 @@ extern uint32_t EncryptionFeaturesEnabled;
 #define ML_FF_SESSION_ID_V1 0x02 // Client supports X-SS-Ping-Payload and X-SS-Connect-Data
 #define ML_FF_IDENTITY_GBR_444 0x04 // Client requests full-range identity G,B,R plane mapping
 #define ML_FF_EXTENDED_FEC_BLOCKS 0x08 // Client supports up to 16 video FEC blocks per frame
+#define ML_FF_LOCAL_CURSOR SC_CURSOR_CLIENT_FEATURE_FLAG // Client presents host cursor shapes through its local compositor cursor
 
 #define UDP_RECV_POLL_TIMEOUT_MS 100
 

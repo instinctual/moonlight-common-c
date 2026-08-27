@@ -138,6 +138,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_RAW_HID_CONTROL 12
 #define IDX_SET_VIDEO_BITRATE 13
 #define IDX_VIDEO_BITRATE_APPLIED 14
+#define IDX_CURSOR_SHAPE 15
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -158,6 +159,7 @@ static const short packetTypesGen3[] = {
     -1,     // Raw HID control (unused)
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
+    -1,     // Local cursor shape (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Request IDR frame
@@ -175,6 +177,7 @@ static const short packetTypesGen4[] = {
     -1,     // Raw HID control (unused)
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
+    -1,     // Local cursor shape (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -192,6 +195,7 @@ static const short packetTypesGen5[] = {
     -1,     // Raw HID control (unused)
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
+    -1,     // Local cursor shape (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -209,6 +213,7 @@ static const short packetTypesGen7[] = {
     -1,     // Raw HID control (unused)
     -1,     // Dynamic video bitrate (unused)
     -1,     // Applied video bitrate (unused)
+    -1,     // Local cursor shape (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0302, // Request IDR frame
@@ -226,6 +231,7 @@ static const short packetTypesGen7Enc[] = {
     0x5504, // Raw HID control (StationConnect protocol extension)
     0x5505, // Dynamic video bitrate (StationConnect protocol extension)
     0x5506, // Applied video bitrate (StationConnect protocol extension)
+    0x5507, // Local cursor shape (StationConnect protocol extension)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -1049,6 +1055,11 @@ static void asyncCallbackThreadFunc(void* context) {
                             queuedCb->data.videoBitrateApplied.peakKbps);
             }
             break;
+        case IDX_CURSOR_SHAPE:
+            if (ListenerCallbacks.cursorChunk != NULL) {
+                ListenerCallbacks.cursorChunk(queuedCb->variableData, queuedCb->variableLength);
+            }
+            break;
         default:
             // Unhandled packet type from queueAsyncCallback()
             LC_ASSERT(false);
@@ -1067,6 +1078,7 @@ static bool needsAsyncCallback(unsigned short packetType) {
            packetType == packetTypes[IDX_SET_RGB_LED] ||
            packetType == packetTypes[IDX_RAW_HID_CONTROL] ||
            packetType == packetTypes[IDX_VIDEO_BITRATE_APPLIED] ||
+           packetType == packetTypes[IDX_CURSOR_SHAPE] ||
            packetType == packetTypes[IDX_HDR_INFO];
 }
 
@@ -1142,6 +1154,21 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
             return;
         }
         queuedCb->typeIndex = IDX_VIDEO_BITRATE_APPLIED;
+    }
+    else if (ctlHdr->type == packetTypes[IDX_CURSOR_SHAPE]) {
+        queuedCb->variableLength = (unsigned int)(packetLength - sizeof(*ctlHdr));
+        if (queuedCb->variableLength < sizeof(SC_CURSOR_WIRE_HEADER) ||
+                queuedCb->variableLength > sizeof(SC_CURSOR_WIRE_HEADER) + SC_CURSOR_MAX_CHUNK_SIZE) {
+            free(queuedCb);
+            return;
+        }
+        queuedCb->variableData = malloc(queuedCb->variableLength);
+        if (queuedCb->variableData == NULL) {
+            free(queuedCb);
+            return;
+        }
+        memcpy(queuedCb->variableData, ctlHdr + 1, queuedCb->variableLength);
+        queuedCb->typeIndex = IDX_CURSOR_SHAPE;
     }
     else {
         // Unhandled packet type from needsAsyncCallback()
