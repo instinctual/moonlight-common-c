@@ -19,6 +19,8 @@ static PLT_THREAD decoderThread;
 static bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
+static StationConnectVideoPacketReceiver externalVideoPacketReceiver;
+static void* externalVideoPacketReceiverContext;
 
 // We can't request an IDR frame until the depacketizer knows
 // that a packet was lost. This timeout bounds the time that
@@ -99,7 +101,10 @@ static void VideoReceiveThreadProc(void* context) {
     bufferSize = decryptedSize + sizeof(RTPV_QUEUE_ENTRY);
     buffer = NULL;
 
-    if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
+    if (externalVideoPacketReceiver != NULL) {
+        useSelect = false;
+    }
+    else if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
         // SO_RCVTIMEO failed, so use select() to wait
         useSelect = true;
     }
@@ -134,13 +139,27 @@ static void VideoReceiveThreadProc(void* context) {
             }
         }
 
-        err = recvUdpSocket(rtpSocket,
-                            encrypted ? encryptedBuffer : buffer,
-                            receiveSize,
-                            useSelect);
+        if (externalVideoPacketReceiver != NULL) {
+            err = externalVideoPacketReceiver(externalVideoPacketReceiverContext,
+                                              (unsigned char*)(encrypted ? encryptedBuffer : buffer),
+                                              receiveSize,
+                                              UDP_RECV_POLL_TIMEOUT_MS);
+        }
+        else {
+            err = recvUdpSocket(rtpSocket,
+                                encrypted ? encryptedBuffer : buffer,
+                                receiveSize,
+                                useSelect);
+        }
         if (err < 0) {
-            Limelog("Video Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
-            ListenerCallbacks.connectionTerminated(LastSocketFail());
+            if (externalVideoPacketReceiver != NULL) {
+                Limelog("Video Receive: external packet source failed: %d\n", err);
+                ListenerCallbacks.connectionTerminated(ML_ERROR_NO_VIDEO_TRAFFIC);
+            }
+            else {
+                Limelog("Video Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
+                ListenerCallbacks.connectionTerminated(LastSocketFail());
+            }
             break;
         }
         else if  (err == 0) {
@@ -242,6 +261,12 @@ static void VideoReceiveThreadProc(void* context) {
     if (encryptedBuffer != NULL) {
         free(encryptedBuffer);
     }
+}
+
+void LiSetStationConnectVideoPacketReceiver(StationConnectVideoPacketReceiver receiver,
+                                            void* context) {
+    externalVideoPacketReceiver = receiver;
+    externalVideoPacketReceiverContext = receiver != NULL ? context : NULL;
 }
 
 void notifyKeyFrameReceived(void) {

@@ -934,6 +934,18 @@ typedef struct _RTP_VIDEO_STATS {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 
+// StationConnect may provide complete encrypted/FEC video packets from an
+// authenticated external transport while retaining the existing video
+// decrypt, RTP, FEC, and depacketizer pipeline. The callback returns a positive
+// packet length, zero for a bounded timeout, or a negative transport failure.
+// Passing NULL restores the normal UDP video receiver.
+typedef int(*StationConnectVideoPacketReceiver)(void* context,
+                                                unsigned char* packet,
+                                                int packetCapacity,
+                                                int timeoutMs);
+void LiSetStationConnectVideoPacketReceiver(StationConnectVideoPacketReceiver receiver,
+                                            void* context);
+
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
 #define ML_PORT_INDEX_TCP_47984 0
 #define ML_PORT_INDEX_TCP_47989 1
