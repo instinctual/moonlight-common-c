@@ -961,29 +961,26 @@ int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
                                       uint16_t frameSamples,
                                       uint32_t missingSamples);
 
-// StationConnect may send selected complete encrypted control packets over an
-// authenticated external reliable transport. The sender must copy the packet
-// before returning and returns zero on success. Passing NULL restores ENet for
-// every control message. The current product integration invokes this sender
-// only for the dynamic-bitrate request; input and all other control remain on
-// their existing paths.
-typedef int(*StationConnectControlPacketSender)(void* context,
-                                                const unsigned char* packet,
-                                                int packetLength);
-void LiSetStationConnectControlPacketSender(StationConnectControlPacketSender sender,
-                                            void* context);
+// Route StationConnect recovery and bitrate requests through a native reliable
+// data plane without wrapping them in encrypted GameStream control packets.
+// The sender must copy the values before returning and returns zero on success.
+// Passing NULL restores the normal GameStream control path.
+#define LI_SC_NATIVE_CONTROL_REQUEST_IDR                 1u
+#define LI_SC_NATIVE_CONTROL_INVALIDATE_REFERENCE_FRAMES 2u
+#define LI_SC_NATIVE_CONTROL_SET_VIDEO_BITRATE           3u
+typedef int(*StationConnectNativeControlSender)(void* context,
+                                                uint32_t type,
+                                                uint32_t value1,
+                                                uint32_t value2);
+void LiSetStationConnectNativeControlSender(
+        StationConnectNativeControlSender sender, void* context);
 
-// StationConnect may receive selected complete encrypted control packets over
-// an authenticated external reliable transport. The receiver returns a packet
-// length, zero for a bounded timeout, or a negative transport failure. Passing
-// NULL restores ENet as the only control receiver. The current product
-// integration uses this path only for the encoder-target acknowledgement.
-typedef int(*StationConnectControlPacketReceiver)(void* context,
-                                                  unsigned char* packet,
-                                                  int packetCapacity,
-                                                  int timeoutMs);
-void LiSetStationConnectControlPacketReceiver(StationConnectControlPacketReceiver receiver,
-                                              void* context);
+// Deliver native Host-to-Client control messages through the same callback
+// and termination paths used by the normal control receiver.
+void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
+                                               uint32_t appliedKbps,
+                                               uint32_t peakKbps);
+void LiNotifyStationConnectHostTermination(uint32_t errorCode);
 
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
 #define ML_PORT_INDEX_TCP_47984 0

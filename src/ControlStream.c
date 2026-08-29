@@ -96,10 +96,8 @@ static bool disconnectPending;
 static bool encryptedControlStream;
 static bool hdrEnabled;
 static SS_HDR_METADATA hdrMetadata;
-static StationConnectControlPacketSender externalControlPacketSender;
-static void* externalControlPacketSenderContext;
-static StationConnectControlPacketReceiver externalControlPacketReceiver;
-static void* externalControlPacketReceiverContext;
+static StationConnectNativeControlSender nativeControlSender;
+static void* nativeControlSenderContext;
 
 static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
@@ -803,27 +801,6 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
         PltLockMutex(&enetMutex);
     }
 
-    // The Datasmash experiment moves one deliberately narrow, low-frequency
-    // message at a time. Preserve the complete existing encrypted packet and
-    // its sequence number, but hand only the dynamic-bitrate request to the
-    // external reliable sender. Every other control and input message remains
-    // on ENet until separately qualified.
-    if (ptype == packetTypes[IDX_SET_VIDEO_BITRATE] &&
-            externalControlPacketSender != NULL) {
-        int sendResult = externalControlPacketSender(
-                    externalControlPacketSenderContext,
-                    enetPacket->data,
-                    (int)enetPacket->dataLength);
-        enet_packet_destroy(enetPacket);
-        PltUnlockMutex(&enetMutex);
-        if (sendResult != 0) {
-            Limelog("Failed to send StationConnect bitrate control packet over external transport: %d\n",
-                    sendResult);
-            return false;
-        }
-        return true;
-    }
-
     volatile bool packetFreed = false;
 
     // Set a callback to use to let us know if the packet has been freed.
@@ -1247,7 +1224,6 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
 
 static void controlReceiveThreadFunc(void* context) {
     int err;
-    unsigned char externalPacket[64 * 1024];
 
     // This is only used for ENet
     if (AppVersionQuad[0] < 5) {
@@ -1257,78 +1233,45 @@ static void controlReceiveThreadFunc(void* context) {
     while (!PltIsThreadInterrupted(&controlReceiveThread)) {
         ENetEvent event;
         enet_uint32 waitTimeMs;
-        int externalPacketLength = 0;
 
-        if (externalControlPacketReceiver != NULL) {
-            externalPacketLength = externalControlPacketReceiver(
-                        externalControlPacketReceiverContext,
-                        externalPacket,
-                        (int)sizeof(externalPacket),
-                        0);
-            if (externalPacketLength < 0 ||
-                    externalPacketLength > (int)sizeof(externalPacket)) {
-                Limelog("External control packet source failed: %d\n",
-                        externalPacketLength);
-                ListenerCallbacks.connectionTerminated(-1);
-                return;
+        PltLockMutex(&enetMutex);
+
+        // Poll for new packets and process retransmissions
+        err = serviceEnetHost(client, &event, 0);
+
+        // Compute the next time we need to wake up to handle the RTO timer
+        // or ping.
+        if (err == 0) {
+            if (ENET_TIME_LESS(peer->nextTimeout, client->serviceTime)) {
+                // This can happen when we have no unacked reliable messages
+                waitTimeMs = 10;
             }
-        }
-
-        if (externalPacketLength > 0) {
-            memset(&event, 0, sizeof(event));
-            event.type = ENET_EVENT_TYPE_RECEIVE;
-            event.packet = enet_packet_create(externalPacket,
-                                               (size_t)externalPacketLength,
-                                               0);
-            if (event.packet == NULL) {
-                Limelog("Failed to allocate external control packet\n");
-                ListenerCallbacks.connectionTerminated(-1);
-                return;
+            else {
+                // We add 1 ms just to ensure we're unlikely to undershoot the sleep() and have to
+                // do a tiny sleep for another iteration before the timeout is ready to be serviced.
+                waitTimeMs = ENET_TIME_DIFFERENCE(peer->nextTimeout, client->serviceTime) + 1;
             }
-            err = 1;
-        }
-        else {
-            PltLockMutex(&enetMutex);
 
-            // Poll for new packets and process retransmissions
-            err = serviceEnetHost(client, &event, 0);
+            // Ensure we don't sleep through a ping
+            if (peer->lastReceiveTime && peer->lastSendTime) {
+                enet_uint32 timeSinceLastRecv = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastReceiveTime);
+                enet_uint32 timeSinceLastSend = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastSendTime);
+                enet_uint32 timeSinceLastComm = MIN(timeSinceLastSend, timeSinceLastRecv);
 
-            // Compute the next time we need to wake up to handle
-            // the RTO timer, ping, or external control packet.
-            if (err == 0) {
-                if (ENET_TIME_LESS(peer->nextTimeout, client->serviceTime)) {
-                    // This can happen when we have no unacked reliable messages
-                    waitTimeMs = 10;
+                if (timeSinceLastComm >= peer->pingInterval) {
+                    // Ping is due now for this peer
+                    waitTimeMs = 0;
                 }
                 else {
-                    // We add 1 ms just to ensure we're unlikely to undershoot the sleep() and have to
-                    // do a tiny sleep for another iteration before the timeout is ready to be serviced.
-                    waitTimeMs = ENET_TIME_DIFFERENCE(peer->nextTimeout, client->serviceTime) + 1;
-                }
-
-                // Ensure we don't sleep through a ping
-                if (peer->lastReceiveTime && peer->lastSendTime) {
-                    enet_uint32 timeSinceLastRecv = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastReceiveTime);
-                    enet_uint32 timeSinceLastSend = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastSendTime);
-                    enet_uint32 timeSinceLastComm = MIN(timeSinceLastSend, timeSinceLastRecv);
-
-                    if (timeSinceLastComm >= peer->pingInterval) {
-                        // Ping is due now for this peer
-                        waitTimeMs = 0;
-                    } else {
-                        waitTimeMs = MIN(waitTimeMs, peer->pingInterval - timeSinceLastComm);
-                    }
-                }
-                else {
-                    waitTimeMs = MIN(waitTimeMs, peer->pingInterval);
-                }
-                if (externalControlPacketReceiver != NULL) {
-                    waitTimeMs = MIN(waitTimeMs, 5);
+                    waitTimeMs = MIN(waitTimeMs, peer->pingInterval - timeSinceLastComm);
                 }
             }
-
-            PltUnlockMutex(&enetMutex);
+            else {
+                waitTimeMs = MIN(waitTimeMs, peer->pingInterval);
+            }
         }
+
+        PltUnlockMutex(&enetMutex);
 
         if (err == 0) {
             // Handle a pending disconnect after unsuccessfully polling
@@ -1667,6 +1610,19 @@ static void lossStatsThreadFunc(void* context) {
 }
 
 static void requestIdrFrame(void) {
+    if (nativeControlSender != NULL) {
+        int sendResult = nativeControlSender(
+                    nativeControlSenderContext,
+                    LI_SC_NATIVE_CONTROL_REQUEST_IDR, 0, 0);
+        if (sendResult != 0) {
+            Limelog("Native IDR frame request failed: %d\n", sendResult);
+            ListenerCallbacks.connectionTerminated(-1);
+            return;
+        }
+        Limelog("Native IDR frame request sent\n");
+        return;
+    }
+
     // If this server does not have a known IDR frame request
     // message, we'll accomplish the same thing by creating a
     // reference frame invalidation request.
@@ -1717,6 +1673,22 @@ static void requestIdrFrame(void) {
 static void requestInvalidateReferenceFrames(uint32_t startFrame, uint32_t endFrame) {
     LC_ASSERT(startFrame <= endFrame);
     LC_ASSERT(isReferenceFrameInvalidationEnabled());
+
+    if (nativeControlSender != NULL) {
+        int sendResult = nativeControlSender(
+                    nativeControlSenderContext,
+                    LI_SC_NATIVE_CONTROL_INVALIDATE_REFERENCE_FRAMES,
+                    startFrame, endFrame);
+        if (sendResult != 0) {
+            Limelog("Native reference-frame invalidation request failed: %d\n",
+                    sendResult);
+            ListenerCallbacks.connectionTerminated(-1);
+            return;
+        }
+        Limelog("Native invalidate reference frame request sent (%d to %d)\n",
+                startFrame, endFrame);
+        return;
+    }
 
     SS_RFI_REQUEST payload = {
         .firstFrameIndex = LE32(startFrame),
@@ -2278,27 +2250,80 @@ bool LiGetHdrMetadata(PSS_HDR_METADATA metadata) {
     return true;
 }
 
-void LiSetStationConnectControlPacketSender(StationConnectControlPacketSender sender,
-                                            void* context) {
-    externalControlPacketSender = sender;
-    externalControlPacketSenderContext = context;
+void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
+                                               uint32_t appliedKbps,
+                                               uint32_t peakKbps) {
+    PQUEUED_ASYNC_CALLBACK queuedCb;
+
+    if (stopping || ListenerCallbacks.videoBitrateApplied == NULL) {
+        return;
+    }
+
+    queuedCb = calloc(1, sizeof(*queuedCb));
+    if (queuedCb == NULL) {
+        Limelog("Unable to allocate native bitrate acknowledgement callback\n");
+        return;
+    }
+    queuedCb->typeIndex = IDX_VIDEO_BITRATE_APPLIED;
+    queuedCb->data.videoBitrateApplied.requestedKbps = requestedKbps;
+    queuedCb->data.videoBitrateApplied.appliedKbps = appliedKbps;
+    queuedCb->data.videoBitrateApplied.peakKbps = peakKbps;
+    if (LbqOfferQueueItem(&asyncCallbackQueue, queuedCb, &queuedCb->entry) !=
+            LBQ_SUCCESS) {
+        Limelog("Unable to queue native bitrate acknowledgement callback\n");
+        free(queuedCb);
+    }
 }
 
-void LiSetStationConnectControlPacketReceiver(StationConnectControlPacketReceiver receiver,
-                                              void* context) {
-    externalControlPacketReceiver = receiver;
-    externalControlPacketReceiverContext = context;
+void LiNotifyStationConnectHostTermination(uint32_t errorCode) {
+    if (stopping) {
+        return;
+    }
+
+    Limelog("Host notified native termination reason: 0x%08x\n", errorCode);
+    switch (errorCode) {
+    case 0x800e9403:
+        errorCode = ML_ERROR_FRAME_CONVERSION;
+        break;
+    case 0x800e9302:
+        errorCode = ML_ERROR_PROTECTED_CONTENT;
+        break;
+    case 0x80030023:
+        errorCode = lastSeenFrame != 0 ?
+                    ML_ERROR_GRACEFUL_TERMINATION :
+                    ML_ERROR_UNEXPECTED_EARLY_TERMINATION;
+        break;
+    default:
+        break;
+    }
+    ListenerCallbacks.connectionTerminated((int)errorCode);
+}
+
+void LiSetStationConnectNativeControlSender(
+        StationConnectNativeControlSender sender, void* context) {
+    nativeControlSender = sender;
+    nativeControlSenderContext = context;
 }
 
 int LiSetVideoBitrate(int bitrateKbps) {
     uint32_t payload;
 
-    if (!(SunshineFeatureFlags & LI_FF_DYNAMIC_VIDEO_BITRATE) ||
-            !encryptedControlStream || packetTypes[IDX_SET_VIDEO_BITRATE] < 0) {
+    if (!(SunshineFeatureFlags & LI_FF_DYNAMIC_VIDEO_BITRATE)) {
         return -1;
     }
 
     if (bitrateKbps < 500 || bitrateKbps > 500000) {
+        return -1;
+    }
+
+    if (nativeControlSender != NULL) {
+        return nativeControlSender(
+                    nativeControlSenderContext,
+                    LI_SC_NATIVE_CONTROL_SET_VIDEO_BITRATE,
+                    (uint32_t)bitrateKbps, 0);
+    }
+
+    if (!encryptedControlStream || packetTypes[IDX_SET_VIDEO_BITRATE] < 0) {
         return -1;
     }
 
