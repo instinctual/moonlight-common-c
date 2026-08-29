@@ -408,7 +408,6 @@ int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
                                       uint16_t frameSamples,
                                       uint32_t missingSamples) {
     if (!StationConnectNativeMediaEnabled ||
-            (AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0 ||
             frameSamples == 0 || packetLength < 0 ||
             (packetLength != 0 && packet == NULL) ||
             (missingSamples != 0 && packetLength != 0)) {
@@ -483,11 +482,6 @@ int startAudioStream(void* audioContext, int arFlags) {
     AudioCallbacks.start();
 
     if (StationConnectNativeMediaEnabled) {
-        if ((AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
-            AudioCallbacks.stop();
-            AudioCallbacks.cleanup();
-            return -1;
-        }
         return 0;
     }
 

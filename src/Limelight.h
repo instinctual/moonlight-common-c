@@ -952,9 +952,10 @@ int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
                                      uint64_t pts90Khz,
                                      uint16_t hostProcessingLatency);
 
-// Submit a raw KyProto-reconstructed Opus packet directly to the configured
-// direct-submit audio renderer. A non-zero missingSamples value invokes Opus
-// packet-loss concealment for the corresponding number of complete frames.
+// Submit a raw KyProto-reconstructed Opus packet to the configured audio
+// renderer from StationConnect's dedicated native receive thread. A non-zero
+// missingSamples value invokes Opus packet-loss concealment for the
+// corresponding number of complete frames.
 int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
                                       int packetLength,
                                       uint16_t frameSamples,
