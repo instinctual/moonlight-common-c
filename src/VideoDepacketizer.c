@@ -786,6 +786,7 @@ int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
     decodingFrame = false;
     nextFrameNumber = frameNumber + 1;
     reassembleFrame((int)frameNumber, false);
+    notifyStationConnectVideoFrameReceived();
     return 0;
 }
 

@@ -1,5 +1,7 @@
 #include "Limelight-internal.h"
 
+#include <stdatomic.h>
+
 static SOCKET rtpSocket = INVALID_SOCKET;
 
 static LINKED_BLOCKING_QUEUE packetQueue;
@@ -15,7 +17,7 @@ static uint32_t avRiKeyId;
 static unsigned short lastSeq;
 
 static bool pingThreadStarted;
-static bool receivedDataFromPeer;
+static atomic_bool receivedDataFromPeer;
 static uint64_t firstReceiveTime;
 static StationConnectAudioPacketReceiver externalAudioPacketReceiver;
 static void* externalAudioPacketReceiverContext;
@@ -71,7 +73,7 @@ int initializeAudioStream(void) {
     LbqInitializeLinkedBlockingQueue(&packetQueue, 30);
     RtpaInitializeQueue(&rtpAudioQueue);
     lastSeq = 0;
-    receivedDataFromPeer = false;
+    atomic_init(&receivedDataFromPeer, false);
     pingThreadStarted = false;
     firstReceiveTime = 0;
     audioDecryptionCtx = PltCreateCryptoContext();
@@ -295,7 +297,7 @@ static void AudioReceiveThreadProc(void* context) {
         else if (packet->header.size == 0) {
             // Receive timed out; try again
 
-            if (!receivedDataFromPeer) {
+            if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
                 waitingForAudioMs += UDP_RECV_POLL_TIMEOUT_MS;
             }
             else {
@@ -313,8 +315,7 @@ static void AudioReceiveThreadProc(void* context) {
 
         rtp = (PRTP_PACKET)&packet->data[0];
 
-        if (!receivedDataFromPeer) {
-            receivedDataFromPeer = true;
+        if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
             Limelog("Received first audio packet after %d ms\n", waitingForAudioMs);
 
             if (firstReceiveTime != 0) {
@@ -434,6 +435,10 @@ int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
         return -1;
     }
 
+    if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
+        Limelog("Received first StationConnect audio packet\n");
+    }
+
     if (missingSamples != 0) {
         uint32_t missingFrames =
             (missingSamples + frameSamples - 1) / frameSamples;
@@ -444,11 +449,12 @@ int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
     else {
         AudioCallbacks.decodeAndPlaySample((char*)packet, packetLength);
     }
+
     return 0;
 }
 
 void stopAudioStream(void) {
-    if (!receivedDataFromPeer) {
+    if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
         Limelog("No audio traffic was ever received from the host!\n");
     }
 

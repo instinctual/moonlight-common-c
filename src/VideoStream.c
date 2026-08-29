@@ -1,5 +1,7 @@
 #include "Limelight-internal.h"
 
+#include <stdatomic.h>
+
 #define FIRST_FRAME_MAX 1500
 #define FIRST_FRAME_TIMEOUT_SEC 10
 
@@ -16,7 +18,7 @@ static PLT_THREAD udpPingThread;
 static PLT_THREAD receiveThread;
 static PLT_THREAD decoderThread;
 
-static bool receivedDataFromPeer;
+static atomic_bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
 static StationConnectVideoPacketReceiver externalVideoPacketReceiver;
@@ -41,7 +43,7 @@ void initializeVideoStream(void) {
     initializeVideoDepacketizer(StreamConfig.packetSize);
     RtpvInitializeQueue(&rtpQueue);
     decryptionCtx = PltCreateCryptoContext();
-    receivedDataFromPeer = false;
+    atomic_init(&receivedDataFromPeer, false);
     firstDataTimeMs = 0;
     receivedFullFrame = false;
 }
@@ -163,7 +165,7 @@ static void VideoReceiveThreadProc(void* context) {
             break;
         }
         else if  (err == 0) {
-            if (!receivedDataFromPeer) {
+            if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
                 // If we wait many seconds without ever receiving a video packet,
                 // assume something is broken and terminate the connection.
                 waitingForVideoMs += UDP_RECV_POLL_TIMEOUT_MS;
@@ -178,8 +180,7 @@ static void VideoReceiveThreadProc(void* context) {
             continue;
         }
 
-        if (!receivedDataFromPeer) {
-            receivedDataFromPeer = true;
+        if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
             Limelog("Received first video packet after %d ms\n", waitingForVideoMs);
 
             firstDataTimeMs = PltGetMillis();
@@ -269,6 +270,13 @@ void LiSetStationConnectVideoPacketReceiver(StationConnectVideoPacketReceiver re
     externalVideoPacketReceiverContext = receiver != NULL ? context : NULL;
 }
 
+void notifyStationConnectVideoFrameReceived(void) {
+    if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
+        firstDataTimeMs = PltGetMillis();
+        Limelog("Received first StationConnect video frame\n");
+    }
+}
+
 void notifyKeyFrameReceived(void) {
     // Remember that we got a full frame successfully
     receivedFullFrame = true;
@@ -301,7 +309,7 @@ int readFirstFrame(void) {
 
 // Terminate the video stream
 void stopVideoStream(void) {
-    if (!receivedDataFromPeer) {
+    if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
         Limelog("No video traffic was ever received from the host!\n");
     }
 
