@@ -96,6 +96,8 @@ static bool disconnectPending;
 static bool encryptedControlStream;
 static bool hdrEnabled;
 static SS_HDR_METADATA hdrMetadata;
+static StationConnectControlPacketSender externalControlPacketSender;
+static void* externalControlPacketSenderContext;
 
 static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
@@ -797,6 +799,27 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
         memcpy(&packet[1], payload, paylen);
 
         PltLockMutex(&enetMutex);
+    }
+
+    // The Datasmash experiment moves one deliberately narrow, low-frequency
+    // message at a time. Preserve the complete existing encrypted packet and
+    // its sequence number, but hand only the dynamic-bitrate request to the
+    // external reliable sender. Every other control and input message remains
+    // on ENet until separately qualified.
+    if (ptype == packetTypes[IDX_SET_VIDEO_BITRATE] &&
+            externalControlPacketSender != NULL) {
+        int sendResult = externalControlPacketSender(
+                    externalControlPacketSenderContext,
+                    enetPacket->data,
+                    (int)enetPacket->dataLength);
+        enet_packet_destroy(enetPacket);
+        PltUnlockMutex(&enetMutex);
+        if (sendResult != 0) {
+            Limelog("Failed to send StationConnect bitrate control packet over external transport: %d\n",
+                    sendResult);
+            return false;
+        }
+        return true;
     }
 
     volatile bool packetFreed = false;
@@ -2216,6 +2239,12 @@ bool LiGetHdrMetadata(PSS_HDR_METADATA metadata) {
 
     *metadata = hdrMetadata;
     return true;
+}
+
+void LiSetStationConnectControlPacketSender(StationConnectControlPacketSender sender,
+                                            void* context) {
+    externalControlPacketSender = sender;
+    externalControlPacketSenderContext = context;
 }
 
 int LiSetVideoBitrate(int bitrateKbps) {

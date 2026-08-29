@@ -957,6 +957,18 @@ typedef int(*StationConnectAudioPacketReceiver)(void* context,
 void LiSetStationConnectAudioPacketReceiver(StationConnectAudioPacketReceiver receiver,
                                             void* context);
 
+// StationConnect may send selected complete encrypted control packets over an
+// authenticated external reliable transport. The sender must copy the packet
+// before returning and returns zero on success. Passing NULL restores ENet for
+// every control message. The current product integration invokes this sender
+// only for the dynamic-bitrate request; input and all other control remain on
+// their existing paths.
+typedef int(*StationConnectControlPacketSender)(void* context,
+                                                const unsigned char* packet,
+                                                int packetLength);
+void LiSetStationConnectControlPacketSender(StationConnectControlPacketSender sender,
+                                            void* context);
+
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
 #define ML_PORT_INDEX_TCP_47984 0
 #define ML_PORT_INDEX_TCP_47989 1
