@@ -946,6 +946,17 @@ typedef int(*StationConnectVideoPacketReceiver)(void* context,
 void LiSetStationConnectVideoPacketReceiver(StationConnectVideoPacketReceiver receiver,
                                             void* context);
 
+// StationConnect may provide complete encrypted/FEC audio packets from the
+// same authenticated external media transport. The callback contract matches
+// StationConnectVideoPacketReceiver. Passing NULL restores UDP audio receive;
+// the existing UDP audio ping remains active for RTSP association.
+typedef int(*StationConnectAudioPacketReceiver)(void* context,
+                                                unsigned char* packet,
+                                                int packetCapacity,
+                                                int timeoutMs);
+void LiSetStationConnectAudioPacketReceiver(StationConnectAudioPacketReceiver receiver,
+                                            void* context);
+
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
 #define ML_PORT_INDEX_TCP_47984 0
 #define ML_PORT_INDEX_TCP_47989 1

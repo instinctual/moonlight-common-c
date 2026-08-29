@@ -17,6 +17,8 @@ static unsigned short lastSeq;
 static bool pingThreadStarted;
 static bool receivedDataFromPeer;
 static uint64_t firstReceiveTime;
+static StationConnectAudioPacketReceiver externalAudioPacketReceiver;
+static void* externalAudioPacketReceiverContext;
 
 #ifdef LC_DEBUG
 #define INVALID_OPUS_HEADER 0x00
@@ -247,7 +249,10 @@ static void AudioReceiveThreadProc(void* context) {
     packet = NULL;
     packetsToDrop = 500 / AudioPacketDuration;
 
-    if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
+    if (externalAudioPacketReceiver != NULL) {
+        useSelect = false;
+    }
+    else if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
         // SO_RCVTIMEO failed, so use select() to wait
         useSelect = true;
     }
@@ -267,10 +272,24 @@ static void AudioReceiveThreadProc(void* context) {
             }
         }
 
-        packet->header.size = recvUdpSocket(rtpSocket, &packet->data[0], MAX_PACKET_SIZE, useSelect);
+        if (externalAudioPacketReceiver != NULL) {
+            packet->header.size = externalAudioPacketReceiver(externalAudioPacketReceiverContext,
+                                                              (unsigned char*)&packet->data[0],
+                                                              MAX_PACKET_SIZE,
+                                                              UDP_RECV_POLL_TIMEOUT_MS);
+        }
+        else {
+            packet->header.size = recvUdpSocket(rtpSocket, &packet->data[0], MAX_PACKET_SIZE, useSelect);
+        }
         if (packet->header.size < 0) {
-            Limelog("Audio Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
-            ListenerCallbacks.connectionTerminated(LastSocketFail());
+            if (externalAudioPacketReceiver != NULL) {
+                Limelog("Audio Receive: external packet source failed: %d\n", packet->header.size);
+                ListenerCallbacks.connectionTerminated(-1);
+            }
+            else {
+                Limelog("Audio Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
+                ListenerCallbacks.connectionTerminated(LastSocketFail());
+            }
             break;
         }
         else if (packet->header.size == 0) {
@@ -397,6 +416,12 @@ static void AudioDecoderThreadProc(void* context) {
 
         free(packet);
     }
+}
+
+void LiSetStationConnectAudioPacketReceiver(StationConnectAudioPacketReceiver receiver,
+                                            void* context) {
+    externalAudioPacketReceiver = receiver;
+    externalAudioPacketReceiverContext = receiver != NULL ? context : NULL;
 }
 
 void stopAudioStream(void) {
