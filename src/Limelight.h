@@ -957,6 +957,26 @@ typedef int(*StationConnectAudioPacketReceiver)(void* context,
 void LiSetStationConnectAudioPacketReceiver(StationConnectAudioPacketReceiver receiver,
                                             void* context);
 
+// Submit a complete KyProto-reconstructed Annex-B frame directly to the
+// decoder queue. This path bypasses GameStream RTP, AES, Reed-Solomon, and
+// depacketization. Returns 0 when queued, 1 when deliberately discarded while
+// waiting for a key frame, and a negative value for invalid input.
+#define STATIONCONNECT_VIDEO_FRAME_FLAG_KEY 0x00000001u
+int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
+                                     int frameLength,
+                                     uint32_t frameNumber,
+                                     uint32_t flags,
+                                     uint64_t pts90Khz,
+                                     uint16_t hostProcessingLatency);
+
+// Submit a raw KyProto-reconstructed Opus packet directly to the configured
+// audio renderer. A non-zero missingSamples value invokes Opus packet-loss
+// concealment for the corresponding number of complete audio frames.
+int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
+                                      int packetLength,
+                                      uint16_t frameSamples,
+                                      uint32_t missingSamples);
+
 // StationConnect may send selected complete encrypted control packets over an
 // authenticated external reliable transport. The sender must copy the packet
 // before returning and returns zero on success. Passing NULL restores ENet for

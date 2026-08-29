@@ -712,6 +712,83 @@ static void processAvcHevcRtpPayloadSlow(PBUFFER_DESC currentPos, PLENTRY_INTERN
     }
 }
 
+int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
+                                     int frameLength,
+                                     uint32_t frameNumber,
+                                     uint32_t flags,
+                                     uint64_t pts90Khz,
+                                     uint16_t hostProcessingLatency) {
+    BUFFER_DESC currentPos;
+    bool keyFrame;
+
+    if (frame == NULL || frameLength <= 0 ||
+            (flags & ~STATIONCONNECT_VIDEO_FRAME_FLAG_KEY) != 0 ||
+            !(NegotiatedVideoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265))) {
+        return -1;
+    }
+
+    keyFrame = (flags & STATIONCONNECT_VIDEO_FRAME_FLAG_KEY) != 0;
+
+    // The native receiver is the sole frame producer on this data plane. A
+    // decoder refresh may still request a deferred state drop from the control
+    // thread, so honor it only at this complete-frame boundary.
+    decodingFrame = false;
+    if (dropStatePending) {
+        dropFrameState();
+    }
+
+    // KyProto delivers reconstructed frames in order. A forward discontinuity
+    // means RaptorQ could not recover one or more complete frames. Request a
+    // clean key frame through the existing recovery control path.
+    if (frameNumber < nextFrameNumber) {
+        return 1;
+    }
+    if (frameNumber > nextFrameNumber) {
+        cleanupFrameState();
+        waitingForIdrFrame = true;
+        waitingForRefInvalFrame = false;
+        waitingForNextSuccessfulFrame = false;
+        connectionDetectedFrameLoss(nextFrameNumber, frameNumber - 1);
+        LiRequestIdrFrame();
+    }
+
+    if (waitingForIdrFrame && !keyFrame) {
+        nextFrameNumber = frameNumber + 1;
+        return 1;
+    }
+
+    cleanupFrameState();
+    frameType = keyFrame ? FRAME_TYPE_IDR : FRAME_TYPE_PFRAME;
+    frameHostProcessingLatency = hostProcessingLatency;
+    firstPacketReceiveTimeUs = PltGetMicroseconds();
+    firstPacketPresentationTime = (pts90Khz * 1000000ULL) / 90000ULL;
+    firstPacketRtpTimestamp = (uint32_t)pts90Khz;
+
+    currentPos.data = (char*)frame;
+    currentPos.offset = 0;
+    currentPos.length = (unsigned int)frameLength;
+    if (keyFrame) {
+        processAvcHevcRtpPayloadSlow(&currentPos, NULL);
+        if (nalChainHead == NULL || frameType != FRAME_TYPE_IDR) {
+            cleanupFrameState();
+            waitingForIdrFrame = true;
+            return -1;
+        }
+    }
+    else {
+        queueFragment(NULL, currentPos.data, 0, frameLength);
+        if (nalChainHead == NULL) {
+            waitingForIdrFrame = true;
+            return -1;
+        }
+    }
+
+    decodingFrame = false;
+    nextFrameNumber = frameNumber + 1;
+    reassembleFrame((int)frameNumber, false);
+    return 0;
+}
+
 // Dumps the decode unit queue and ensures the next frame submitted to the decoder will be
 // an IDR frame
 void requestDecoderRefresh(void) {

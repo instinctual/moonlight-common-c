@@ -424,6 +424,29 @@ void LiSetStationConnectAudioPacketReceiver(StationConnectAudioPacketReceiver re
     externalAudioPacketReceiverContext = receiver != NULL ? context : NULL;
 }
 
+int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
+                                      int packetLength,
+                                      uint16_t frameSamples,
+                                      uint32_t missingSamples) {
+    if (frameSamples == 0 || packetLength < 0 ||
+            (packetLength != 0 && packet == NULL) ||
+            (missingSamples != 0 && packetLength != 0)) {
+        return -1;
+    }
+
+    if (missingSamples != 0) {
+        uint32_t missingFrames =
+            (missingSamples + frameSamples - 1) / frameSamples;
+        while (missingFrames-- != 0) {
+            AudioCallbacks.decodeAndPlaySample(NULL, 0);
+        }
+    }
+    else {
+        AudioCallbacks.decodeAndPlaySample((char*)packet, packetLength);
+    }
+    return 0;
+}
+
 void stopAudioStream(void) {
     if (!receivedDataFromPeer) {
         Limelog("No audio traffic was ever received from the host!\n");
