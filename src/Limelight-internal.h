@@ -52,6 +52,7 @@ extern uint32_t SunshineFeatureFlags;
 extern uint32_t EncryptionFeaturesSupported;
 extern uint32_t EncryptionFeaturesRequested;
 extern uint32_t EncryptionFeaturesEnabled;
+extern bool StationConnectNativeMediaEnabled;
 
 // ENet channel ID values
 #define CTRL_CHANNEL_GENERIC      0x00
@@ -140,7 +141,6 @@ void notifyFrameLost(unsigned int frameNumber, bool speculative);
 
 void initializeVideoStream(void);
 void destroyVideoStream(void);
-void notifyStationConnectVideoFrameReceived(void);
 void notifyKeyFrameReceived(void);
 int startVideoStream(void* rendererContext, int drFlags);
 void stopVideoStream(void);

@@ -723,6 +723,7 @@ int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
 
     if (frame == NULL || frameLength <= 0 ||
             (flags & ~STATIONCONNECT_VIDEO_FRAME_FLAG_KEY) != 0 ||
+            !StationConnectNativeMediaEnabled ||
             !(NegotiatedVideoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265))) {
         return -1;
     }
@@ -786,7 +787,6 @@ int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
     decodingFrame = false;
     nextFrameNumber = frameNumber + 1;
     reassembleFrame((int)frameNumber, false);
-    notifyStationConnectVideoFrameReceived();
     return 0;
 }
 

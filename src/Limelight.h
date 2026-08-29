@@ -934,28 +934,11 @@ typedef struct _RTP_VIDEO_STATS {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 
-// StationConnect may provide complete encrypted/FEC video packets from an
-// authenticated external transport while retaining the existing video
-// decrypt, RTP, FEC, and depacketizer pipeline. The callback returns a positive
-// packet length, zero for a bounded timeout, or a negative transport failure.
-// Passing NULL restores the normal UDP video receiver.
-typedef int(*StationConnectVideoPacketReceiver)(void* context,
-                                                unsigned char* packet,
-                                                int packetCapacity,
-                                                int timeoutMs);
-void LiSetStationConnectVideoPacketReceiver(StationConnectVideoPacketReceiver receiver,
-                                            void* context);
-
-// StationConnect may provide complete encrypted/FEC audio packets from the
-// same authenticated external media transport. The callback contract matches
-// StationConnectVideoPacketReceiver. Passing NULL restores UDP audio receive;
-// the existing UDP audio ping remains active for RTSP association.
-typedef int(*StationConnectAudioPacketReceiver)(void* context,
-                                                unsigned char* packet,
-                                                int packetCapacity,
-                                                int timeoutMs);
-void LiSetStationConnectAudioPacketReceiver(StationConnectAudioPacketReceiver receiver,
-                                            void* context);
+// Select the native StationConnect media path before LiStartConnection().
+// Native media bypasses the legacy UDP ping, receive, RTP, AES, and
+// Reed-Solomon threads. Passing false selects the normal GameStream media
+// path. The value must not change until after LiStopConnection().
+void LiSetStationConnectNativeMediaEnabled(bool enabled);
 
 // Submit a complete KyProto-reconstructed Annex-B frame directly to the
 // decoder queue. This path bypasses GameStream RTP, AES, Reed-Solomon, and
@@ -970,8 +953,8 @@ int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
                                      uint16_t hostProcessingLatency);
 
 // Submit a raw KyProto-reconstructed Opus packet directly to the configured
-// audio renderer. A non-zero missingSamples value invokes Opus packet-loss
-// concealment for the corresponding number of complete audio frames.
+// direct-submit audio renderer. A non-zero missingSamples value invokes Opus
+// packet-loss concealment for the corresponding number of complete frames.
 int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
                                       int packetLength,
                                       uint16_t frameSamples,

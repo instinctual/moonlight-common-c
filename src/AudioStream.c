@@ -1,7 +1,5 @@
 #include "Limelight-internal.h"
 
-#include <stdatomic.h>
-
 static SOCKET rtpSocket = INVALID_SOCKET;
 
 static LINKED_BLOCKING_QUEUE packetQueue;
@@ -17,10 +15,8 @@ static uint32_t avRiKeyId;
 static unsigned short lastSeq;
 
 static bool pingThreadStarted;
-static atomic_bool receivedDataFromPeer;
+static bool receivedDataFromPeer;
 static uint64_t firstReceiveTime;
-static StationConnectAudioPacketReceiver externalAudioPacketReceiver;
-static void* externalAudioPacketReceiverContext;
 
 #ifdef LC_DEBUG
 #define INVALID_OPUS_HEADER 0x00
@@ -73,7 +69,7 @@ int initializeAudioStream(void) {
     LbqInitializeLinkedBlockingQueue(&packetQueue, 30);
     RtpaInitializeQueue(&rtpAudioQueue);
     lastSeq = 0;
-    atomic_init(&receivedDataFromPeer, false);
+    receivedDataFromPeer = false;
     pingThreadStarted = false;
     firstReceiveTime = 0;
     audioDecryptionCtx = PltCreateCryptoContext();
@@ -92,6 +88,10 @@ int initializeAudioStream(void) {
 // number is parsed out of it. Alternatively, it's also called if parsing fails
 // and will use the well known audio port instead.
 int notifyAudioPortNegotiationComplete(void) {
+    if (StationConnectNativeMediaEnabled) {
+        return 0;
+    }
+
     LC_ASSERT(!pingThreadStarted);
     LC_ASSERT(AudioPortNumber != 0);
 
@@ -251,10 +251,7 @@ static void AudioReceiveThreadProc(void* context) {
     packet = NULL;
     packetsToDrop = 500 / AudioPacketDuration;
 
-    if (externalAudioPacketReceiver != NULL) {
-        useSelect = false;
-    }
-    else if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
+    if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
         // SO_RCVTIMEO failed, so use select() to wait
         useSelect = true;
     }
@@ -274,30 +271,16 @@ static void AudioReceiveThreadProc(void* context) {
             }
         }
 
-        if (externalAudioPacketReceiver != NULL) {
-            packet->header.size = externalAudioPacketReceiver(externalAudioPacketReceiverContext,
-                                                              (unsigned char*)&packet->data[0],
-                                                              MAX_PACKET_SIZE,
-                                                              UDP_RECV_POLL_TIMEOUT_MS);
-        }
-        else {
-            packet->header.size = recvUdpSocket(rtpSocket, &packet->data[0], MAX_PACKET_SIZE, useSelect);
-        }
+        packet->header.size = recvUdpSocket(rtpSocket, &packet->data[0], MAX_PACKET_SIZE, useSelect);
         if (packet->header.size < 0) {
-            if (externalAudioPacketReceiver != NULL) {
-                Limelog("Audio Receive: external packet source failed: %d\n", packet->header.size);
-                ListenerCallbacks.connectionTerminated(-1);
-            }
-            else {
-                Limelog("Audio Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
-                ListenerCallbacks.connectionTerminated(LastSocketFail());
-            }
+            Limelog("Audio Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
+            ListenerCallbacks.connectionTerminated(LastSocketFail());
             break;
         }
         else if (packet->header.size == 0) {
             // Receive timed out; try again
 
-            if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
+            if (!receivedDataFromPeer) {
                 waitingForAudioMs += UDP_RECV_POLL_TIMEOUT_MS;
             }
             else {
@@ -315,7 +298,8 @@ static void AudioReceiveThreadProc(void* context) {
 
         rtp = (PRTP_PACKET)&packet->data[0];
 
-        if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
+        if (!receivedDataFromPeer) {
+            receivedDataFromPeer = true;
             Limelog("Received first audio packet after %d ms\n", waitingForAudioMs);
 
             if (firstReceiveTime != 0) {
@@ -419,24 +403,16 @@ static void AudioDecoderThreadProc(void* context) {
     }
 }
 
-void LiSetStationConnectAudioPacketReceiver(StationConnectAudioPacketReceiver receiver,
-                                            void* context) {
-    externalAudioPacketReceiver = receiver;
-    externalAudioPacketReceiverContext = receiver != NULL ? context : NULL;
-}
-
 int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
                                       int packetLength,
                                       uint16_t frameSamples,
                                       uint32_t missingSamples) {
-    if (frameSamples == 0 || packetLength < 0 ||
+    if (!StationConnectNativeMediaEnabled ||
+            (AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0 ||
+            frameSamples == 0 || packetLength < 0 ||
             (packetLength != 0 && packet == NULL) ||
             (missingSamples != 0 && packetLength != 0)) {
         return -1;
-    }
-
-    if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
-        Limelog("Received first StationConnect audio packet\n");
     }
 
     if (missingSamples != 0) {
@@ -454,7 +430,13 @@ int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
 }
 
 void stopAudioStream(void) {
-    if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
+    if (StationConnectNativeMediaEnabled) {
+        AudioCallbacks.stop();
+        AudioCallbacks.cleanup();
+        return;
+    }
+
+    if (!receivedDataFromPeer) {
         Limelog("No audio traffic was ever received from the host!\n");
     }
 
@@ -499,6 +481,15 @@ int startAudioStream(void* audioContext, int arFlags) {
     }
 
     AudioCallbacks.start();
+
+    if (StationConnectNativeMediaEnabled) {
+        if ((AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
+            AudioCallbacks.stop();
+            AudioCallbacks.cleanup();
+            return -1;
+        }
+        return 0;
+    }
 
     err = PltCreateThread("AudioRecv", AudioReceiveThreadProc, NULL, &receiveThread);
     if (err != 0) {

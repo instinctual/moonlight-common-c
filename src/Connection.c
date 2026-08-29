@@ -36,6 +36,7 @@ uint32_t SunshineFeatureFlags;
 uint32_t EncryptionFeaturesSupported;
 uint32_t EncryptionFeaturesRequested;
 uint32_t EncryptionFeaturesEnabled;
+bool StationConnectNativeMediaEnabled;
 
 // Connection stages
 static const char* stageNames[STAGE_MAX] = {
@@ -56,6 +57,11 @@ static const char* stageNames[STAGE_MAX] = {
 // Get the name of the current stage based on its number
 const char* LiGetStageName(int stage) {
     return stageNames[stage];
+}
+
+void LiSetStationConnectNativeMediaEnabled(bool enabled) {
+    LC_ASSERT(stage == STAGE_NONE);
+    StationConnectNativeMediaEnabled = enabled;
 }
 
 // Interrupt a pending connection attempt. This interruption happens asynchronously

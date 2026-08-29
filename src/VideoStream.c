@@ -1,7 +1,5 @@
 #include "Limelight-internal.h"
 
-#include <stdatomic.h>
-
 #define FIRST_FRAME_MAX 1500
 #define FIRST_FRAME_TIMEOUT_SEC 10
 
@@ -18,11 +16,9 @@ static PLT_THREAD udpPingThread;
 static PLT_THREAD receiveThread;
 static PLT_THREAD decoderThread;
 
-static atomic_bool receivedDataFromPeer;
+static bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
-static StationConnectVideoPacketReceiver externalVideoPacketReceiver;
-static void* externalVideoPacketReceiverContext;
 
 // We can't request an IDR frame until the depacketizer knows
 // that a packet was lost. This timeout bounds the time that
@@ -43,7 +39,7 @@ void initializeVideoStream(void) {
     initializeVideoDepacketizer(StreamConfig.packetSize);
     RtpvInitializeQueue(&rtpQueue);
     decryptionCtx = PltCreateCryptoContext();
-    atomic_init(&receivedDataFromPeer, false);
+    receivedDataFromPeer = false;
     firstDataTimeMs = 0;
     receivedFullFrame = false;
 }
@@ -103,10 +99,7 @@ static void VideoReceiveThreadProc(void* context) {
     bufferSize = decryptedSize + sizeof(RTPV_QUEUE_ENTRY);
     buffer = NULL;
 
-    if (externalVideoPacketReceiver != NULL) {
-        useSelect = false;
-    }
-    else if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
+    if (setNonFatalRecvTimeoutMs(rtpSocket, UDP_RECV_POLL_TIMEOUT_MS) < 0) {
         // SO_RCVTIMEO failed, so use select() to wait
         useSelect = true;
     }
@@ -141,31 +134,17 @@ static void VideoReceiveThreadProc(void* context) {
             }
         }
 
-        if (externalVideoPacketReceiver != NULL) {
-            err = externalVideoPacketReceiver(externalVideoPacketReceiverContext,
-                                              (unsigned char*)(encrypted ? encryptedBuffer : buffer),
-                                              receiveSize,
-                                              UDP_RECV_POLL_TIMEOUT_MS);
-        }
-        else {
-            err = recvUdpSocket(rtpSocket,
-                                encrypted ? encryptedBuffer : buffer,
-                                receiveSize,
-                                useSelect);
-        }
+        err = recvUdpSocket(rtpSocket,
+                            encrypted ? encryptedBuffer : buffer,
+                            receiveSize,
+                            useSelect);
         if (err < 0) {
-            if (externalVideoPacketReceiver != NULL) {
-                Limelog("Video Receive: external packet source failed: %d\n", err);
-                ListenerCallbacks.connectionTerminated(ML_ERROR_NO_VIDEO_TRAFFIC);
-            }
-            else {
-                Limelog("Video Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
-                ListenerCallbacks.connectionTerminated(LastSocketFail());
-            }
+            Limelog("Video Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
+            ListenerCallbacks.connectionTerminated(LastSocketFail());
             break;
         }
         else if  (err == 0) {
-            if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
+            if (!receivedDataFromPeer) {
                 // If we wait many seconds without ever receiving a video packet,
                 // assume something is broken and terminate the connection.
                 waitingForVideoMs += UDP_RECV_POLL_TIMEOUT_MS;
@@ -180,7 +159,8 @@ static void VideoReceiveThreadProc(void* context) {
             continue;
         }
 
-        if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
+        if (!receivedDataFromPeer) {
+            receivedDataFromPeer = true;
             Limelog("Received first video packet after %d ms\n", waitingForVideoMs);
 
             firstDataTimeMs = PltGetMillis();
@@ -264,19 +244,6 @@ static void VideoReceiveThreadProc(void* context) {
     }
 }
 
-void LiSetStationConnectVideoPacketReceiver(StationConnectVideoPacketReceiver receiver,
-                                            void* context) {
-    externalVideoPacketReceiver = receiver;
-    externalVideoPacketReceiverContext = receiver != NULL ? context : NULL;
-}
-
-void notifyStationConnectVideoFrameReceived(void) {
-    if (!atomic_exchange_explicit(&receivedDataFromPeer, true, memory_order_relaxed)) {
-        firstDataTimeMs = PltGetMillis();
-        Limelog("Received first StationConnect video frame\n");
-    }
-}
-
 void notifyKeyFrameReceived(void) {
     // Remember that we got a full frame successfully
     receivedFullFrame = true;
@@ -309,7 +276,18 @@ int readFirstFrame(void) {
 
 // Terminate the video stream
 void stopVideoStream(void) {
-    if (!atomic_load_explicit(&receivedDataFromPeer, memory_order_relaxed)) {
+    if (StationConnectNativeMediaEnabled) {
+        VideoCallbacks.stop();
+        stopVideoDepacketizer();
+        if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+            PltInterruptThread(&decoderThread);
+            PltJoinThread(&decoderThread);
+        }
+        VideoCallbacks.cleanup();
+        return;
+    }
+
+    if (!receivedDataFromPeer) {
         Limelog("No video traffic was ever received from the host!\n");
     }
 
@@ -360,6 +338,19 @@ int startVideoStream(void* rendererContext, int drFlags) {
         StreamConfig.height, StreamConfig.fps, rendererContext, drFlags);
     if (err != 0) {
         return err;
+    }
+
+    if (StationConnectNativeMediaEnabled) {
+        VideoCallbacks.start();
+        if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+            err = PltCreateThread("VideoDec", VideoDecoderThreadProc, NULL, &decoderThread);
+            if (err != 0) {
+                VideoCallbacks.stop();
+                VideoCallbacks.cleanup();
+                return err;
+            }
+        }
+        return 0;
     }
 
     rtpSocket = bindUdpSocket(RemoteAddr.ss_family, &LocalAddr, AddrLen,
