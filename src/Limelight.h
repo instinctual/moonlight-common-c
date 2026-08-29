@@ -969,6 +969,18 @@ typedef int(*StationConnectControlPacketSender)(void* context,
 void LiSetStationConnectControlPacketSender(StationConnectControlPacketSender sender,
                                             void* context);
 
+// StationConnect may receive selected complete encrypted control packets over
+// an authenticated external reliable transport. The receiver returns a packet
+// length, zero for a bounded timeout, or a negative transport failure. Passing
+// NULL restores ENet as the only control receiver. The current product
+// integration uses this path only for the encoder-target acknowledgement.
+typedef int(*StationConnectControlPacketReceiver)(void* context,
+                                                  unsigned char* packet,
+                                                  int packetCapacity,
+                                                  int timeoutMs);
+void LiSetStationConnectControlPacketReceiver(StationConnectControlPacketReceiver receiver,
+                                              void* context);
+
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
 #define ML_PORT_INDEX_TCP_47984 0
 #define ML_PORT_INDEX_TCP_47989 1

@@ -98,6 +98,8 @@ static bool hdrEnabled;
 static SS_HDR_METADATA hdrMetadata;
 static StationConnectControlPacketSender externalControlPacketSender;
 static void* externalControlPacketSenderContext;
+static StationConnectControlPacketReceiver externalControlPacketReceiver;
+static void* externalControlPacketReceiverContext;
 
 static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
@@ -1245,6 +1247,7 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
 
 static void controlReceiveThreadFunc(void* context) {
     int err;
+    unsigned char externalPacket[64 * 1024];
 
     // This is only used for ENet
     if (AppVersionQuad[0] < 5) {
@@ -1254,44 +1257,78 @@ static void controlReceiveThreadFunc(void* context) {
     while (!PltIsThreadInterrupted(&controlReceiveThread)) {
         ENetEvent event;
         enet_uint32 waitTimeMs;
+        int externalPacketLength = 0;
 
-        PltLockMutex(&enetMutex);
-
-        // Poll for new packets and process retransmissions
-        err = serviceEnetHost(client, &event, 0);
-
-        // Compute the next time we need to wake up to handle
-        // the RTO timer or a ping.
-        if (err == 0) {
-            if (ENET_TIME_LESS(peer->nextTimeout, client->serviceTime)) {
-                // This can happen when we have no unacked reliable messages
-                waitTimeMs = 10;
-            }
-            else {
-                // We add 1 ms just to ensure we're unlikely to undershoot the sleep() and have to
-                // do a tiny sleep for another iteration before the timeout is ready to be serviced.
-                waitTimeMs = ENET_TIME_DIFFERENCE(peer->nextTimeout, client->serviceTime) + 1;
-            }
-
-            // Ensure we don't sleep through a ping
-            if (peer->lastReceiveTime && peer->lastSendTime) {
-                enet_uint32 timeSinceLastRecv = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastReceiveTime);
-                enet_uint32 timeSinceLastSend = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastSendTime);
-                enet_uint32 timeSinceLastComm = MIN(timeSinceLastSend, timeSinceLastRecv);
-
-                if (timeSinceLastComm >= peer->pingInterval) {
-                    // Ping is due now for this peer
-                    waitTimeMs = 0;
-                } else {
-                    waitTimeMs = MIN(waitTimeMs, peer->pingInterval - timeSinceLastComm);
-                }
-            }
-            else {
-                waitTimeMs = MIN(waitTimeMs, peer->pingInterval);
+        if (externalControlPacketReceiver != NULL) {
+            externalPacketLength = externalControlPacketReceiver(
+                        externalControlPacketReceiverContext,
+                        externalPacket,
+                        (int)sizeof(externalPacket),
+                        0);
+            if (externalPacketLength < 0 ||
+                    externalPacketLength > (int)sizeof(externalPacket)) {
+                Limelog("External control packet source failed: %d\n",
+                        externalPacketLength);
+                ListenerCallbacks.connectionTerminated(-1);
+                return;
             }
         }
 
-        PltUnlockMutex(&enetMutex);
+        if (externalPacketLength > 0) {
+            memset(&event, 0, sizeof(event));
+            event.type = ENET_EVENT_TYPE_RECEIVE;
+            event.packet = enet_packet_create(externalPacket,
+                                               (size_t)externalPacketLength,
+                                               0);
+            if (event.packet == NULL) {
+                Limelog("Failed to allocate external control packet\n");
+                ListenerCallbacks.connectionTerminated(-1);
+                return;
+            }
+            err = 1;
+        }
+        else {
+            PltLockMutex(&enetMutex);
+
+            // Poll for new packets and process retransmissions
+            err = serviceEnetHost(client, &event, 0);
+
+            // Compute the next time we need to wake up to handle
+            // the RTO timer, ping, or external control packet.
+            if (err == 0) {
+                if (ENET_TIME_LESS(peer->nextTimeout, client->serviceTime)) {
+                    // This can happen when we have no unacked reliable messages
+                    waitTimeMs = 10;
+                }
+                else {
+                    // We add 1 ms just to ensure we're unlikely to undershoot the sleep() and have to
+                    // do a tiny sleep for another iteration before the timeout is ready to be serviced.
+                    waitTimeMs = ENET_TIME_DIFFERENCE(peer->nextTimeout, client->serviceTime) + 1;
+                }
+
+                // Ensure we don't sleep through a ping
+                if (peer->lastReceiveTime && peer->lastSendTime) {
+                    enet_uint32 timeSinceLastRecv = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastReceiveTime);
+                    enet_uint32 timeSinceLastSend = ENET_TIME_DIFFERENCE(client->serviceTime, peer->lastSendTime);
+                    enet_uint32 timeSinceLastComm = MIN(timeSinceLastSend, timeSinceLastRecv);
+
+                    if (timeSinceLastComm >= peer->pingInterval) {
+                        // Ping is due now for this peer
+                        waitTimeMs = 0;
+                    } else {
+                        waitTimeMs = MIN(waitTimeMs, peer->pingInterval - timeSinceLastComm);
+                    }
+                }
+                else {
+                    waitTimeMs = MIN(waitTimeMs, peer->pingInterval);
+                }
+                if (externalControlPacketReceiver != NULL) {
+                    waitTimeMs = MIN(waitTimeMs, 5);
+                }
+            }
+
+            PltUnlockMutex(&enetMutex);
+        }
 
         if (err == 0) {
             // Handle a pending disconnect after unsuccessfully polling
@@ -2245,6 +2282,12 @@ void LiSetStationConnectControlPacketSender(StationConnectControlPacketSender se
                                             void* context) {
     externalControlPacketSender = sender;
     externalControlPacketSenderContext = context;
+}
+
+void LiSetStationConnectControlPacketReceiver(StationConnectControlPacketReceiver receiver,
+                                              void* context) {
+    externalControlPacketReceiver = receiver;
+    externalControlPacketReceiverContext = context;
 }
 
 int LiSetVideoBitrate(int bitrateKbps) {
