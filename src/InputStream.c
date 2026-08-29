@@ -1,5 +1,9 @@
 #include "Limelight-internal.h"
 
+#ifdef STATIONCONNECT_DATASMASH
+#include "stationconnect_datasmash_input.h"
+#endif
+
 static SOCKET inputSock = INVALID_SOCKET;
 static unsigned char currentAesIv[16];
 static bool initialized;
@@ -7,6 +11,11 @@ static bool encryptedControlStream;
 static bool needsBatchedScroll;
 static int batchedScrollDelta;
 static PPLT_CRYPTO_CONTEXT cryptoContext;
+
+#ifdef STATIONCONNECT_DATASMASH
+static StationConnectNativeInputSender nativeInputSender;
+static void* nativeInputSenderContext;
+#endif
 
 static LINKED_BLOCKING_QUEUE packetQueue;
 static LINKED_BLOCKING_QUEUE packetHolderFreeList;
@@ -236,6 +245,115 @@ static PPACKET_HOLDER allocatePacketHolder(int extraLength) {
 static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
     SOCK_RET err;
 
+#ifdef STATIONCONNECT_DATASMASH
+    if (nativeInputSender != NULL) {
+        uint32_t magic = LE32(holder->packet.header.magic);
+        uint8_t payload[SC_DATASMASH_INPUT_PEN_SIZE];
+        const uint8_t* variablePayload = NULL;
+        size_t payloadLength = 0;
+        uint8_t type = 0;
+
+        (void)moreData;
+        switch (magic) {
+        case MOUSE_MOVE_ABS_MAGIC:
+            type = SC_DATASMASH_INPUT_ABSOLUTE_MOUSE;
+            payloadLength = SC_DATASMASH_INPUT_ABSOLUTE_MOUSE_SIZE;
+            sc_datasmash_input_encode_absolute_mouse(
+                payload,
+                (uint16_t)BE16(holder->packet.mouseMoveAbs.x),
+                (uint16_t)BE16(holder->packet.mouseMoveAbs.y),
+                (uint16_t)BE16(holder->packet.mouseMoveAbs.width),
+                (uint16_t)BE16(holder->packet.mouseMoveAbs.height));
+            break;
+        case MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5:
+        case MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5:
+            type = SC_DATASMASH_INPUT_MOUSE_BUTTON;
+            payloadLength = SC_DATASMASH_INPUT_MOUSE_BUTTON_SIZE;
+            payload[0] = holder->packet.mouseButton.button;
+            payload[1] = magic == MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5 ?
+                SC_DATASMASH_INPUT_ACTION_PRESS :
+                SC_DATASMASH_INPUT_ACTION_RELEASE;
+            break;
+        case SCROLL_MAGIC_GEN5:
+            type = SC_DATASMASH_INPUT_VERTICAL_SCROLL;
+            payloadLength = SC_DATASMASH_INPUT_SCROLL_SIZE;
+            sc_datasmash_input_write_u16(
+                payload, (uint16_t)BE16(holder->packet.scroll.scrollAmt1));
+            break;
+        case SS_HSCROLL_MAGIC:
+            type = SC_DATASMASH_INPUT_HORIZONTAL_SCROLL;
+            payloadLength = SC_DATASMASH_INPUT_SCROLL_SIZE;
+            sc_datasmash_input_write_u16(
+                payload, (uint16_t)BE16(holder->packet.hscroll.scrollAmount));
+            break;
+        case KEY_DOWN_EVENT_MAGIC:
+        case KEY_UP_EVENT_MAGIC:
+            type = SC_DATASMASH_INPUT_KEYBOARD;
+            payloadLength = SC_DATASMASH_INPUT_KEYBOARD_SIZE;
+            sc_datasmash_input_write_u16(
+                payload, (uint16_t)LE16(holder->packet.keyboard.keyCode));
+            payload[2] = magic == KEY_DOWN_EVENT_MAGIC ?
+                SC_DATASMASH_INPUT_ACTION_PRESS :
+                SC_DATASMASH_INPUT_ACTION_RELEASE;
+            payload[3] = (uint8_t)holder->packet.keyboard.modifiers;
+            payload[4] = (uint8_t)holder->packet.keyboard.flags;
+            break;
+        case UTF8_TEXT_EVENT_MAGIC:
+            type = SC_DATASMASH_INPUT_UTF8_TEXT;
+            variablePayload = (const uint8_t*)holder->packet.unicode.text;
+            payloadLength = PAYLOAD_SIZE(holder) - sizeof(uint32_t);
+            break;
+        case SS_PEN_MAGIC: {
+            float x;
+            float y;
+            float pressure;
+            float contactAreaMajor;
+            float contactAreaMinor;
+            memcpy(&x, holder->packet.pen.x, sizeof(x));
+            memcpy(&y, holder->packet.pen.y, sizeof(y));
+            memcpy(&pressure, holder->packet.pen.pressureOrDistance, sizeof(pressure));
+            memcpy(&contactAreaMajor, holder->packet.pen.contactAreaMajor, sizeof(contactAreaMajor));
+            memcpy(&contactAreaMinor, holder->packet.pen.contactAreaMinor, sizeof(contactAreaMinor));
+            type = SC_DATASMASH_INPUT_PEN;
+            payloadLength = SC_DATASMASH_INPUT_PEN_SIZE;
+            sc_datasmash_input_encode_pen(
+                payload,
+                holder->packet.pen.eventType,
+                holder->packet.pen.toolType,
+                holder->packet.pen.penButtons,
+                holder->packet.pen.tilt,
+                LE16(holder->packet.pen.rotation),
+                x, y, pressure, contactAreaMajor, contactAreaMinor);
+            break;
+        }
+        case SS_RAW_HID_MAGIC:
+            type = SC_DATASMASH_INPUT_RAW_HID_WACOM;
+            variablePayload = holder->packet.rawHid.data;
+            payloadLength = PACKET_SIZE(holder) - (sizeof(SS_RAW_HID_PACKET) - 1);
+            break;
+        case MOUSE_MOVE_REL_MAGIC_GEN5:
+        case ENABLE_HAPTICS_MAGIC:
+            // StationConnect uses absolute mouse input and has no gamepad haptics.
+            return true;
+        default:
+            Limelog("Rejected unsupported input type on native KyProto input: 0x%08x\n", magic);
+            return false;
+        }
+
+        if (variablePayload == NULL) {
+            variablePayload = payload;
+        }
+        err = (SOCK_RET)nativeInputSender(
+            nativeInputSenderContext, type, variablePayload, payloadLength);
+        if (err < 0) {
+            Limelog("Native KyProto input send failed: %d\n", (int)err);
+            ListenerCallbacks.connectionTerminated(err);
+            return false;
+        }
+        return true;
+    }
+#endif
+
     // On GFE 3.22, the entire control stream is encrypted (and support for separate RI encrypted)
     // has been removed. We send the plaintext packet through and the control stream code will do
     // the encryption.
@@ -305,6 +423,17 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
     }
 
     return true;
+}
+
+void LiSetStationConnectNativeInputSender(
+        StationConnectNativeInputSender sender, void* context) {
+#ifdef STATIONCONNECT_DATASMASH
+    nativeInputSender = sender;
+    nativeInputSenderContext = context;
+#else
+    (void)sender;
+    (void)context;
+#endif
 }
 
 static void floatToNetfloat(float in, netfloat out) {

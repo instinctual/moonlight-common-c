@@ -975,6 +975,17 @@ typedef int(*StationConnectNativeControlSender)(void* context,
 void LiSetStationConnectNativeControlSender(
         StationConnectNativeControlSender sender, void* context);
 
+// Route StationConnect keyboard, absolute mouse, scrolling, pen, and raw-HID
+// Wacom messages through Kyber's native reliable input protocol. The payload
+// is one complete stationconnect_datasmash_input.h message and must be copied
+// before the callback returns. Passing NULL restores the legacy transport.
+typedef int(*StationConnectNativeInputSender)(void* context,
+                                              uint8_t type,
+                                              const unsigned char* payload,
+                                              size_t payloadLength);
+void LiSetStationConnectNativeInputSender(
+        StationConnectNativeInputSender sender, void* context);
+
 // Deliver native Host-to-Client control messages through the same callback
 // and termination paths used by the normal control receiver.
 void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
