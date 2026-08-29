@@ -2275,6 +2275,68 @@ void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
     }
 }
 
+static void queueNativeVariableCallback(int typeIndex,
+                                        const unsigned char* data,
+                                        unsigned int length) {
+    PQUEUED_ASYNC_CALLBACK queuedCb;
+
+    if (stopping || data == NULL || length == 0) {
+        return;
+    }
+    queuedCb = calloc(1, sizeof(*queuedCb));
+    if (queuedCb == NULL) {
+        return;
+    }
+    queuedCb->variableData = malloc(length);
+    if (queuedCb->variableData == NULL) {
+        free(queuedCb);
+        return;
+    }
+    memcpy(queuedCb->variableData, data, length);
+    queuedCb->variableLength = length;
+    queuedCb->typeIndex = typeIndex;
+    if (LbqOfferQueueItem(&asyncCallbackQueue, queuedCb, &queuedCb->entry) !=
+            LBQ_SUCCESS) {
+        free(queuedCb->variableData);
+        free(queuedCb);
+    }
+}
+
+void LiNotifyStationConnectHdrMode(bool enabled,
+                                   const SS_HDR_METADATA* metadata) {
+    PQUEUED_ASYNC_CALLBACK queuedCb;
+
+    if (stopping || metadata == NULL) {
+        return;
+    }
+    hdrEnabled = enabled;
+    hdrMetadata = *metadata;
+    queuedCb = calloc(1, sizeof(*queuedCb));
+    if (queuedCb == NULL) {
+        return;
+    }
+    queuedCb->typeIndex = IDX_HDR_INFO;
+    if (LbqOfferQueueItem(&asyncCallbackQueue, queuedCb, &queuedCb->entry) !=
+            LBQ_SUCCESS) {
+        free(queuedCb);
+    }
+}
+
+void LiNotifyStationConnectRawHidControl(const unsigned char* data,
+                                         unsigned int length) {
+    queueNativeVariableCallback(IDX_RAW_HID_CONTROL, data, length);
+}
+
+void LiNotifyStationConnectCursorChunk(const unsigned char* data,
+                                       unsigned int length) {
+    queueNativeVariableCallback(IDX_CURSOR_SHAPE, data, length);
+}
+
+void LiNotifyStationConnectCursorPosition(const unsigned char* data,
+                                          unsigned int length) {
+    queueNativeVariableCallback(IDX_CURSOR_POSITION, data, length);
+}
+
 void LiNotifyStationConnectHostTermination(uint32_t errorCode) {
     if (stopping) {
         return;

@@ -991,6 +991,15 @@ void LiSetStationConnectNativeInputSender(
 void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
                                                uint32_t appliedKbps,
                                                uint32_t peakKbps);
+struct _SS_HDR_METADATA;
+void LiNotifyStationConnectHdrMode(bool enabled,
+                                   const struct _SS_HDR_METADATA* metadata);
+void LiNotifyStationConnectRawHidControl(const unsigned char* data,
+                                         unsigned int length);
+void LiNotifyStationConnectCursorChunk(const unsigned char* data,
+                                       unsigned int length);
+void LiNotifyStationConnectCursorPosition(const unsigned char* data,
+                                          unsigned int length);
 void LiNotifyStationConnectHostTermination(uint32_t errorCode);
 
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
