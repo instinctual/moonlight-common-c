@@ -7,8 +7,7 @@
 #include "PlatformCrypto.h"
 #include "Video.h"
 #include "Input.h"
-#include "RtpAudioQueue.h"
-#include "RtpVideoQueue.h"
+#include "LegacyRtpVideoPacket.h"
 #include "ByteBuffer.h"
 
 #include <enet/enet.h>

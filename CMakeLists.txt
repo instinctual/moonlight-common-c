@@ -17,11 +17,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ${CMAKE_POSITION_INDEPENDENT_CODE_BACKUP})
 unset(CMAKE_POSITION_INDEPENDENT_CODE_BACKUP)
 
 aux_source_directory(src SRC_LIST)
-list(APPEND SRC_LIST
-  nanors/rs.c
-  nanors/deps/obl/oblas_common.c
-  nanors/deps/obl/oblas_lite.c
-)
 
 # Build shared library by default, but allows user override
 if (NOT DEFINED BUILD_SHARED_LIBS)
@@ -109,11 +104,5 @@ int main ()
 endif()
 
 target_include_directories(moonlight-common-c SYSTEM PUBLIC src)
-
-target_include_directories(moonlight-common-c SYSTEM PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/nanors
-  ${CMAKE_CURRENT_SOURCE_DIR}/nanors/deps
-  ${CMAKE_CURRENT_SOURCE_DIR}/nanors/deps/obl
-)
 
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
