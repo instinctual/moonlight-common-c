@@ -98,6 +98,7 @@ static bool hdrEnabled;
 static SS_HDR_METADATA hdrMetadata;
 static StationConnectNativeControlSender nativeControlSender;
 static void* nativeControlSenderContext;
+static bool nativeControlStream;
 
 static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
@@ -326,6 +327,7 @@ static bool supportsIdrFrameRequest;
 // Initializes the control stream
 int initializeControlStream(void) {
     stopping = false;
+    nativeControlStream = nativeControlSender != NULL;
     PltCreateEvent(&idrFrameRequiredEvent);
     LbqInitializeLinkedBlockingQueue(&referenceFrameControlQueue, 20);
     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
@@ -1819,15 +1821,22 @@ int stopControlStream(void) {
         shutdownTcpSocket(ctlSock);
     }
 
-    PltInterruptThread(&lossStatsThread);
-    PltInterruptThread(&requestIdrFrameThread);
-    PltInterruptThread(&controlReceiveThread);
-    PltInterruptThread(&asyncCallbackThread);
-
-    PltJoinThread(&lossStatsThread);
-    PltJoinThread(&requestIdrFrameThread);
-    PltJoinThread(&controlReceiveThread);
-    PltJoinThread(&asyncCallbackThread);
+    if (nativeControlStream) {
+        PltInterruptThread(&requestIdrFrameThread);
+        PltInterruptThread(&asyncCallbackThread);
+        PltJoinThread(&requestIdrFrameThread);
+        PltJoinThread(&asyncCallbackThread);
+    }
+    else {
+        PltInterruptThread(&lossStatsThread);
+        PltInterruptThread(&requestIdrFrameThread);
+        PltInterruptThread(&controlReceiveThread);
+        PltInterruptThread(&asyncCallbackThread);
+        PltJoinThread(&lossStatsThread);
+        PltJoinThread(&requestIdrFrameThread);
+        PltJoinThread(&controlReceiveThread);
+        PltJoinThread(&asyncCallbackThread);
+    }
 
     // We will only have an RFI thread if RFI is enabled
     if (isReferenceFrameInvalidationEnabled()) {
@@ -1914,6 +1923,46 @@ bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVarianc
 // Starts the control stream
 int startControlStream(void) {
     int err;
+
+    if (nativeControlStream) {
+        // Native KyProto owns transport setup, liveness, and reliable control
+        // delivery. Keep only the common-c workers that drive decoder recovery
+        // and serialize callbacks into the existing client implementation.
+        err = PltCreateThread("ReqIdrFrame", requestIdrFrameFunc, NULL,
+                              &requestIdrFrameThread);
+        if (err != 0) {
+            stopping = true;
+            return err;
+        }
+
+        err = PltCreateThread("CtrlAsyncCb", asyncCallbackThreadFunc, NULL,
+                              &asyncCallbackThread);
+        if (err != 0) {
+            stopping = true;
+            PltSetEvent(&idrFrameRequiredEvent);
+            PltInterruptThread(&requestIdrFrameThread);
+            PltJoinThread(&requestIdrFrameThread);
+            return err;
+        }
+
+        if (isReferenceFrameInvalidationEnabled()) {
+            err = PltCreateThread("InvRefFrames", referenceFrameControlFunc,
+                                  NULL, &invalidateRefFramesThread);
+            if (err != 0) {
+                stopping = true;
+                PltSetEvent(&idrFrameRequiredEvent);
+                LbqSignalQueueShutdown(&asyncCallbackQueue);
+                PltInterruptThread(&requestIdrFrameThread);
+                PltJoinThread(&requestIdrFrameThread);
+                PltInterruptThread(&asyncCallbackThread);
+                PltJoinThread(&asyncCallbackThread);
+                return err;
+            }
+        }
+
+        Limelog("Native KyProto control stream started without legacy ENet\n");
+        return 0;
+    }
 
     if (AppVersionQuad[0] >= 5) {
         ENetAddress remoteAddress, localAddress;
