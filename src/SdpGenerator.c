@@ -200,35 +200,6 @@ static int addGen5Options(PSDP_OPTION* head) {
         snprintf(payloadStr, sizeof(payloadStr), "%u", featureFlags);
         err |= addAttributeString(head, "x-nv-general.featureFlags", payloadStr);
 
-        // Ask for the encrypted control protocol to ensure remote input will be encrypted.
-        // This used to be done via separate RI encryption, but now it is all or nothing.
-        err |= addAttributeString(head, "x-nv-general.useReliableUdp", "13");
-
-        // Require at least 2 FEC packets for small frames. If a frame has fewer data shards
-        // than would generate 2 FEC shards, it will increase the FEC percentage for that frame
-        // above the set value (even going as high as 200% FEC to generate 2 FEC shards from a
-        // 1 data shard frame).
-        err |= addAttributeString(head, "x-nv-vqos[0].fec.minRequiredFecPackets", "2");
-
-        // BLL-FEC appears to adjust dynamically based on the loss rate and instantaneous bitrate
-        // of each frame, however we can't dynamically control it from our side yet. As a result,
-        // the effective FEC amount is significantly lower (single digit percentages for many
-        // large frames) and the result is worse performance during packet loss. Disabling BLL-FEC
-        // results in GFE 3.26 falling back to the legacy FEC method as we would like.
-        err |= addAttributeString(head, "x-nv-vqos[0].bllFec.enable", "0");
-    }
-    else {
-        // We want to use the new ENet connections for control and input
-        err |= addAttributeString(head, "x-nv-general.useReliableUdp", "1");
-        err |= addAttributeString(head, "x-nv-ri.useControlChannel", "1");
-
-        // When streaming 4K, lower FEC levels to reduce stream overhead
-        if (StreamConfig.width >= 3840 && StreamConfig.height >= 2160) {
-            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent", "5");
-        }
-        else {
-            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent", "20");
-        }
     }
     
     if (APP_VERSION_AT_LEAST(7, 1, 446) && (StreamConfig.width < 720 || StreamConfig.height < 540)) {

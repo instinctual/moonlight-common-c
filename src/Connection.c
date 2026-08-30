@@ -361,9 +361,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         // We use TCP 47984 and 47989 first here because we know those should always be listening
         // on hosts using the standard ports.
         //
-        // TCP 48010 is a last resort because:
-        // a) it's not always listening and there's a race between listen() on the host and our connect()
-        // b) it's not used at all by certain host versions which perform RTSP over ENet
+        // TCP 48010 is a last resort because it may not be listening yet when
+        // the host first returns from launch.
         err = resolveHostName(serverInfo->address, AF_UNSPEC, 47984, &RemoteAddr, &AddrLen);
         if (err != 0) {
             err = resolveHostName(serverInfo->address, AF_UNSPEC, 47989, &RemoteAddr, &AddrLen);

@@ -10,8 +10,6 @@
 #include "LegacyRtpVideoPacket.h"
 #include "ByteBuffer.h"
 
-#include <enet/enet.h>
-
 // Common globals
 extern char* RemoteAddrString;
 extern struct sockaddr_storage RemoteAddr;
@@ -51,18 +49,6 @@ extern uint32_t SunshineFeatureFlags;
 extern uint32_t EncryptionFeaturesSupported;
 extern uint32_t EncryptionFeaturesRequested;
 extern uint32_t EncryptionFeaturesEnabled;
-// ENet channel ID values
-#define CTRL_CHANNEL_GENERIC      0x00
-#define CTRL_CHANNEL_URGENT       0x01 // IDR, LTR ACK and RFI
-#define CTRL_CHANNEL_KEYBOARD     0x02
-#define CTRL_CHANNEL_MOUSE        0x03
-#define CTRL_CHANNEL_PEN          0x04
-#define CTRL_CHANNEL_TOUCH        0x05
-#define CTRL_CHANNEL_UTF8         0x06
-#define CTRL_CHANNEL_GAMEPAD_BASE 0x10 // 0x10 to 0x1F by controller index
-#define CTRL_CHANNEL_SENSOR_BASE  0x20 // 0x20 to 0x2F by controller index
-#define CTRL_CHANNEL_COUNT        0x30
-
 #ifndef UINT24_MAX
 #define UINT24_MAX 0xFFFFFF
 #endif
@@ -102,8 +88,6 @@ extern uint32_t EncryptionFeaturesEnabled;
 // Internal macro for checking the magic byte of the audio configuration value
 #define MAGIC_BYTE_FROM_AUDIO_CONFIG(x) ((x) & 0xFF)
 
-int serviceEnetHost(ENetHost* client, ENetEvent* event, enet_uint32 timeoutMs);
-int gracefullyDisconnectEnetPeer(ENetHost* host, ENetPeer* peer, enet_uint32 lingerTimeoutMs);
 int extractVersionQuadFromString(const char* string, int* quad);
 bool isReferenceFrameInvalidationSupportedByDecoder(void);
 bool isReferenceFrameInvalidationEnabled(void);
@@ -121,12 +105,6 @@ int stopControlStream(void);
 void destroyControlStream(void);
 void connectionDetectedFrameLoss(uint32_t startFrame, uint32_t endFrame);
 void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR);
-void connectionSawFrame(uint32_t frameIndex);
-void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus);
-int sendInputPacketOnControlStream(unsigned char* data, int length, uint8_t channelId, uint32_t flags, bool moreData);
-void flushInputOnControlStream(void);
-bool isControlDataInTransit(void);
-
 int performRtspHandshake(PSERVER_INFORMATION serverInfo);
 
 void initializeVideoDepacketizer(int pktSize);

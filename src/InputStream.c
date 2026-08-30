@@ -1,21 +1,13 @@
 #include "Limelight-internal.h"
 
-#ifdef STATIONCONNECT_DATASMASH
 #include "stationconnect_datasmash_input.h"
-#endif
 
-static SOCKET inputSock = INVALID_SOCKET;
-static unsigned char currentAesIv[16];
 static bool initialized;
-static bool encryptedControlStream;
 static bool needsBatchedScroll;
 static int batchedScrollDelta;
-static PPLT_CRYPTO_CONTEXT cryptoContext;
 
-#ifdef STATIONCONNECT_DATASMASH
 static StationConnectNativeInputSender nativeInputSender;
 static void* nativeInputSenderContext;
-#endif
 
 static LINKED_BLOCKING_QUEUE packetQueue;
 static LINKED_BLOCKING_QUEUE packetHolderFreeList;
@@ -34,9 +26,6 @@ static uint8_t currentPenButtonState;
 
 #define CLAMP(val, min, max) (((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)))
 
-#define MAX_INPUT_PACKET_SIZE 128
-#define INPUT_STREAM_TIMEOUT_SEC 10
-
 #define MAX_QUEUED_INPUT_PACKETS 150
 
 #define PAYLOAD_SIZE(x) BE32((x)->packet.header.size)
@@ -46,9 +35,8 @@ static uint8_t currentPenButtonState;
 #define LI_WHEEL_DELTA 120
 
 // If we try to send more than one stylus or mouse motion event
-// per millisecond, we'll wait a little bit to try to batch with
-// the next one. This batching wait paradoxically _decreases_
-// effective input latency by avoiding packet queuing in ENet.
+// per millisecond, we'll wait a little bit to batch with the next one. This
+// keeps the bounded native input queue current without increasing latency.
 #define MOUSE_BATCHING_INTERVAL_MS 1
 #define PEN_BATCHING_INTERVAL_MS 1
 
@@ -58,8 +46,6 @@ static uint8_t currentPenButtonState;
 // Contains input stream packets
 typedef struct _PACKET_HOLDER {
     LINKED_BLOCKING_QUEUE_ENTRY entry;
-    uint32_t enetPacketFlags;
-    uint8_t channelId;
 
     // The union must be the last member since we abuse the NV_UNICODE_PACKET
     // text field to store variable length data which gets split before being
@@ -104,15 +90,10 @@ static struct {
 
 // Initializes the input stream
 int initializeInputStream(void) {
-    memcpy(currentAesIv, StreamConfig.remoteInputAesIv, sizeof(currentAesIv));
-
     // Set a high maximum queue size limit to ensure input isn't dropped
     // while the input send thread is blocked for short periods.
     LbqInitializeLinkedBlockingQueue(&packetQueue, MAX_QUEUED_INPUT_PACKETS);
     LbqInitializeLinkedBlockingQueue(&packetHolderFreeList, MAX_QUEUED_INPUT_PACKETS);
-
-    cryptoContext = PltCreateCryptoContext();
-    encryptedControlStream = APP_VERSION_AT_LEAST(7, 1, 431);
 
     // FIXME: Unsure if this is exactly right, but it's probably good enough.
     //
@@ -140,8 +121,6 @@ int initializeInputStream(void) {
 void destroyInputStream(void) {
     PLINKED_BLOCKING_QUEUE_ENTRY entry, nextEntry;
 
-    PltDestroyCryptoContext(cryptoContext);
-
     entry = LbqDestroyLinkedBlockingQueue(&packetQueue);
 
     while (entry != NULL) {
@@ -165,41 +144,6 @@ void destroyInputStream(void) {
     }
 
     PltDeleteMutex(&batchedInputMutex);
-}
-
-static int encryptData(unsigned char* plaintext, int plaintextLen,
-                       unsigned char* ciphertext, int* ciphertextLen) {
-    // Starting in Gen 7, AES GCM is used for encryption
-    if (AppVersionQuad[0] >= 7) {
-        if (!PltEncryptMessage(cryptoContext, ALGORITHM_AES_GCM, 0,
-                               (unsigned char*)StreamConfig.remoteInputAesKey, sizeof(StreamConfig.remoteInputAesKey),
-                               currentAesIv, sizeof(currentAesIv),
-                               ciphertext, 16,
-                               plaintext, plaintextLen,
-                               &ciphertext[16], ciphertextLen)) {
-            return -1;
-        }
-
-        // Increment the ciphertextLen to account for the tag
-        *ciphertextLen += 16;
-        return 0;
-    }
-    else {
-        // PKCS7 padding may need to be added in-place, so we must copy this into a buffer
-        // that can safely be modified.
-        unsigned char paddedData[ROUND_TO_PKCS7_PADDED_LEN(MAX_INPUT_PACKET_SIZE)];
-
-        memcpy(paddedData, plaintext, plaintextLen);
-
-        // Prior to Gen 7, 128-bit AES CBC is used for encryption with each message padded
-        // to the block size to ensure messages are not delayed within the cipher.
-        return PltEncryptMessage(cryptoContext, ALGORITHM_AES_CBC, CIPHER_FLAG_PAD_TO_BLOCK_SIZE,
-                                 (unsigned char*)StreamConfig.remoteInputAesKey, sizeof(StreamConfig.remoteInputAesKey),
-                                 currentAesIv, sizeof(currentAesIv),
-                                 NULL, 0,
-                                 paddedData, plaintextLen,
-                                 ciphertext, ciphertextLen) ? 0 : -1;
-    }
 }
 
 static void freePacketHolder(PPACKET_HOLDER holder) {
@@ -245,7 +189,6 @@ static PPACKET_HOLDER allocatePacketHolder(int extraLength) {
 static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
     SOCK_RET err;
 
-#ifdef STATIONCONNECT_DATASMASH
     if (nativeInputSender != NULL) {
         uint32_t magic = LE32(holder->packet.header.magic);
         uint8_t payload[SC_DATASMASH_INPUT_PEN_SIZE];
@@ -352,88 +295,16 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
         }
         return true;
     }
-#endif
 
-    // On GFE 3.22, the entire control stream is encrypted (and support for separate RI encrypted)
-    // has been removed. We send the plaintext packet through and the control stream code will do
-    // the encryption.
-    if (encryptedControlStream) {
-        err = (SOCK_RET)sendInputPacketOnControlStream((unsigned char*)&holder->packet,
-                                                        PACKET_SIZE(holder),
-                                                        holder->channelId,
-                                                        holder->enetPacketFlags,
-                                                        moreData);
-        if (err < 0) {
-            Limelog("Input: sendInputPacketOnControlStream() failed: %d\n", (int) err);
-            ListenerCallbacks.connectionTerminated(err);
-            return false;
-        }
-    }
-    else {
-        char encryptedBuffer[MAX_INPUT_PACKET_SIZE];
-        uint32_t encryptedSize;
-        uint32_t encryptedLengthPrefix;
-
-        // Encrypt the message into the output buffer while leaving room for the length
-        encryptedSize = sizeof(encryptedBuffer) - sizeof(encryptedLengthPrefix);
-        err = encryptData((unsigned char*)&holder->packet, PACKET_SIZE(holder),
-            (unsigned char*)&encryptedBuffer[sizeof(encryptedLengthPrefix)], (int*)&encryptedSize);
-        if (err != 0) {
-            Limelog("Input: Encryption failed: %d\n", (int)err);
-            ListenerCallbacks.connectionTerminated(err);
-            return false;
-        }
-
-        // Prepend the length to the message
-        encryptedLengthPrefix = BE32(encryptedSize);
-        memcpy(&encryptedBuffer[0], &encryptedLengthPrefix, sizeof(encryptedLengthPrefix));
-
-        if (AppVersionQuad[0] < 5) {
-            // Send the encrypted payload
-            err = send(inputSock, (const char*) encryptedBuffer,
-                (int) (encryptedSize + sizeof(encryptedLengthPrefix)), 0);
-            if (err <= 0) {
-                Limelog("Input: send() failed: %d\n", (int) LastSocketError());
-                ListenerCallbacks.connectionTerminated(LastSocketFail());
-                return false;
-            }
-        }
-        else {
-            // For reasons that I can't understand, NVIDIA decides to use the last 16
-            // bytes of ciphertext in the most recent game controller packet as the IV for
-            // future encryption. I think it may be a buffer overrun on their end but we'll have
-            // to mimic it to work correctly.
-            if (AppVersionQuad[0] >= 7 && encryptedSize >= 16 + sizeof(currentAesIv)) {
-                memcpy(currentAesIv,
-                       &encryptedBuffer[4 + encryptedSize - sizeof(currentAesIv)],
-                       sizeof(currentAesIv));
-            }
-
-            err = (SOCK_RET)sendInputPacketOnControlStream((unsigned char*) encryptedBuffer,
-                                                            (int)(encryptedSize + sizeof(encryptedLengthPrefix)),
-                                                            holder->channelId,
-                                                            holder->enetPacketFlags,
-                                                            moreData);
-            if (err < 0) {
-                Limelog("Input: sendInputPacketOnControlStream() failed: %d\n", (int) err);
-                ListenerCallbacks.connectionTerminated(err);
-                return false;
-            }
-        }
-    }
-
-    return true;
+    Limelog("StationConnect native input sender is not configured\n");
+    ListenerCallbacks.connectionTerminated(-1);
+    return false;
 }
 
 void LiSetStationConnectNativeInputSender(
         StationConnectNativeInputSender sender, void* context) {
-#ifdef STATIONCONNECT_DATASMASH
     nativeInputSender = sender;
     nativeInputSenderContext = context;
-#else
-    (void)sender;
-    (void)context;
-#endif
 }
 
 static void floatToNetfloat(float in, netfloat out) {
@@ -498,7 +369,6 @@ static void inputSendThreadProc(void* context) {
 
             // Delay for batching if required
             if (now < lastMousePacketTime + MOUSE_BATCHING_INTERVAL_MS) {
-                flushInputOnControlStream();
                 PltSleepMs((int)(lastMousePacketTime + MOUSE_BATCHING_INTERVAL_MS - now));
                 now = PltGetMillis();
             }
@@ -569,7 +439,6 @@ static void inputSendThreadProc(void* context) {
 
             // Delay for batching if required
             if (now < lastMousePacketTime + MOUSE_BATCHING_INTERVAL_MS) {
-                flushInputOnControlStream();
                 PltSleepMs((int)(lastMousePacketTime + MOUSE_BATCHING_INTERVAL_MS - now));
                 now = PltGetMillis();
             }
@@ -601,7 +470,6 @@ static void inputSendThreadProc(void* context) {
 
             // Delay for batching if required
             if (now < lastPenPacketTime + PEN_BATCHING_INTERVAL_MS) {
-                flushInputOnControlStream();
                 PltSleepMs((int)(lastPenPacketTime + PEN_BATCHING_INTERVAL_MS - now));
                 now = PltGetMillis();
             }
@@ -652,17 +520,6 @@ static void inputSendThreadProc(void* context) {
             float y = currentGamepadSensorState[controllerNumber][motionType - 1].y;
             float z = currentGamepadSensorState[controllerNumber][motionType - 1].z;
 
-            // Motion events are so rapid that we can just drop any events that are lost in transit,
-            // but we will treat (0, 0, 0) as a special value for gyro events to allow clients to
-            // reliably set the gyro to a null state when sensor events are halted due to focus loss
-            // or similar client-side constraints.
-            if (motionType == LI_MOTION_TYPE_GYRO && x == 0.0f && y == 0.0f && z == 0.0f) {
-                holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
-            }
-            else {
-                holder->enetPacketFlags = 0;
-            }
-
             // Populate the packet with the latest state
             floatToNetfloat(x, holder->packet.controllerMotion.x);
             floatToNetfloat(y, holder->packet.controllerMotion.y);
@@ -678,18 +535,6 @@ static void inputSendThreadProc(void* context) {
             PACKET_HOLDER splitPacket;
             uint32_t totalLength = PAYLOAD_SIZE(holder) - sizeof(uint32_t);
             uint32_t i = 0;
-
-            // HACK: This is a workaround for the fact that GFE doesn't appear to synchronize keyboard
-            // and UTF-8 text events with each other. We need to make sure any previous keyboard events
-            // have been processed prior to sending these UTF-8 events to avoid interference between
-            // the two (especially with modifier keys).
-            flushInputOnControlStream();
-            while (!PltIsThreadInterrupted(&inputSendThread) && isControlDataInTransit()) {
-                PltSleepMs(10);
-            }
-
-            // Finally, sleep an additional 50 ms to allow the events to be processed by Windows
-            PltSleepMs(50);
 
             // We send each Unicode code point individually. This way we can always ensure they will
             // never straddle a packet boundary (which will cause a parsing error on the host).
@@ -745,67 +590,22 @@ static void inputSendThreadProc(void* context) {
     }
 }
 
-// This function tells GFE that we support haptics and it should send rumble events to us
-static int sendEnableHaptics(void) {
-    PPACKET_HOLDER holder;
-    int err;
-
-    // Avoid sending this on earlier server versions, since they may terminate
-    // the connection upon receiving an unexpected packet.
-    if (!APP_VERSION_AT_LEAST(7, 1, 0)) {
-        return 0;
-    }
-
-    holder = allocatePacketHolder(0);
-    if (holder == NULL) {
-        return -1;
-    }
-
-    holder->channelId = CTRL_CHANNEL_GENERIC;
-    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
-    holder->packet.haptics.header.size = BE32(sizeof(NV_HAPTICS_PACKET) - sizeof(uint32_t));
-    holder->packet.haptics.header.magic = LE32(ENABLE_HAPTICS_MAGIC);
-    holder->packet.haptics.enable = LE16(1);
-
-    err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
-    if (err != LBQ_SUCCESS) {
-        LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
-        Limelog("Input queue reached maximum size limit\n");
-        freePacketHolder(holder);
-    }
-
-    return err;
-}
-
 // Begin the input stream
 int startInputStream(void) {
     int err;
 
-    // After Gen 5, we send input on the control stream
-    if (AppVersionQuad[0] < 5) {
-        inputSock = connectTcpSocket(&RemoteAddr, AddrLen,
-            35043, INPUT_STREAM_TIMEOUT_SEC);
-        if (inputSock == INVALID_SOCKET) {
-            return LastSocketFail();
-        }
-
-        enableNoDelay(inputSock);
+    if (nativeInputSender == NULL) {
+        Limelog("StationConnect native input sender is required\n");
+        return -1;
     }
 
     err = PltCreateThread("InputSend", inputSendThreadProc, NULL, &inputSendThread);
     if (err != 0) {
-        if (inputSock != INVALID_SOCKET) {
-            closeSocket(inputSock);
-            inputSock = INVALID_SOCKET;
-        }
         return err;
     }
 
     // Allow input packets to be queued now
     initialized = true;
-
-    // GFE will not send haptics events without this magic packet first
-    sendEnableHaptics();
 
     return err;
 }
@@ -820,15 +620,6 @@ int stopInputStream(void) {
     // input packets before shutting down.
     LbqSignalQueueDrain(&packetQueue);
     PltJoinThread(&inputSendThread);
-
-    if (inputSock != INVALID_SOCKET) {
-        shutdownTcpSocket(inputSock);
-    }
-
-    if (inputSock != INVALID_SOCKET) {
-        closeSocket(inputSock);
-        inputSock = INVALID_SOCKET;
-    }
 
     return 0;
 }
@@ -864,12 +655,6 @@ int LiSendMouseMoveEvent(short deltaX, short deltaY) {
             currentRelativeMouseState.dirty = false;
             return -1;
         }
-
-        holder->channelId = CTRL_CHANNEL_MOUSE;
-
-        // TODO: Send this as unreliable sequenced when we have a delayed reliable retransmission thread
-        // and protocol updates to allow us to determine which unreliable messages were dropped.
-        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
 
         holder->packet.mouseMoveRel.header.size = BE32(sizeof(NV_REL_MOUSE_MOVE_PACKET) - sizeof(uint32_t));
         if (AppVersionQuad[0] >= 5) {
@@ -930,11 +715,6 @@ int LiSendMousePositionEvent(short x, short y, short referenceWidth, short refer
             return -1;
         }
 
-        holder->channelId = CTRL_CHANNEL_MOUSE;
-
-        // TODO: Send this as unreliable sequenced when we have a delayed reliable retransmission thread
-        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
-
         holder->packet.mouseMoveAbs.header.size = BE32(sizeof(NV_ABS_MOUSE_MOVE_PACKET) - sizeof(uint32_t));
         holder->packet.mouseMoveAbs.header.magic = LE32(MOUSE_MOVE_ABS_MAGIC);
         holder->packet.mouseMoveAbs.unused = 0;
@@ -992,8 +772,6 @@ int LiSendMouseButtonEvent(char action, int button) {
         return -1;
     }
 
-    holder->channelId = CTRL_CHANNEL_MOUSE;
-    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
     holder->packet.mouseButton.header.size = BE32(sizeof(NV_MOUSE_BUTTON_PACKET) - sizeof(uint32_t));
     holder->packet.mouseButton.header.magic = (uint8_t)action;
     if (AppVersionQuad[0] >= 5) {
@@ -1025,9 +803,6 @@ int LiSendKeyboardEvent2(short keyCode, char keyAction, char modifiers, char fla
     if (holder == NULL) {
         return -1;
     }
-
-    holder->channelId = CTRL_CHANNEL_KEYBOARD;
-    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
 
     // For proper behavior, the MODIFIER flag must not be set on the modifier key down event itself
     // for the extended modifiers on the right side of the keyboard. If the MODIFIER flag is set,
@@ -1107,9 +882,6 @@ int LiSendUtf8TextEvent(const char *text, unsigned int length) {
         return -1;
     }
 
-    holder->channelId = CTRL_CHANNEL_UTF8;
-    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
-
     // Magic + string length
     holder->packet.unicode.header.size = BE32(sizeof(uint32_t) + length);
     holder->packet.unicode.header.magic = LE32(UTF8_TEXT_EVENT_MAGIC);
@@ -1132,7 +904,7 @@ int LiSendRawHidEvent(const unsigned char* data, unsigned int length) {
     if (!initialized) {
         return -2;
     }
-    if (!(SunshineFeatureFlags & LI_FF_RAW_HID_TABLET) || !encryptedControlStream) {
+    if (!(SunshineFeatureFlags & LI_FF_RAW_HID_TABLET) || nativeInputSender == NULL) {
         return -3;
     }
     if (data == NULL || length < sizeof(SC_RAW_HID_WIRE_HEADER) ||
@@ -1145,8 +917,6 @@ int LiSendRawHidEvent(const unsigned char* data, unsigned int length) {
         return -1;
     }
 
-    holder->channelId = CTRL_CHANNEL_GENERIC;
-    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
     holder->packet.rawHid.header.size = BE32(sizeof(uint32_t) + length);
     holder->packet.rawHid.header.magic = LE32(SS_RAW_HID_MAGIC);
     memcpy(holder->packet.rawHid.data, data, length);
@@ -1234,12 +1004,6 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         if (holder == NULL) {
             return -1;
         }
-
-        // Send each controller on a separate channel
-        holder->channelId = CTRL_CHANNEL_GAMEPAD_BASE + controllerNumber;
-
-        // TODO: Send this as unreliable sequenced when we have a delayed reliable retransmission thread
-        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
 
         // Remember that we need to enqueue this holder since it's new
         enqueueHolder = true;
@@ -1382,9 +1146,6 @@ int LiSendHighResScrollEvent(short scrollAmount) {
                 return -1;
             }
 
-            holder->channelId = CTRL_CHANNEL_MOUSE;
-            holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
-
             holder->packet.scroll.header.size = BE32(sizeof(NV_SCROLL_PACKET) - sizeof(uint32_t));
             if (AppVersionQuad[0] >= 5) {
                 holder->packet.scroll.header.magic = LE32(SCROLL_MAGIC_GEN5);
@@ -1414,9 +1175,6 @@ int LiSendHighResScrollEvent(short scrollAmount) {
         if (holder == NULL) {
             return -1;
         }
-
-        holder->channelId = CTRL_CHANNEL_MOUSE;
-        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
 
         holder->packet.scroll.header.size = BE32(sizeof(NV_SCROLL_PACKET) - sizeof(uint32_t));
         if (AppVersionQuad[0] >= 5) {
@@ -1468,9 +1226,6 @@ int LiSendHighResHScrollEvent(short scrollAmount) {
         return -1;
     }
 
-    holder->channelId = CTRL_CHANNEL_MOUSE;
-    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
-
     holder->packet.hscroll.header.size = BE32(sizeof(SS_HSCROLL_PACKET) - sizeof(uint32_t));
     holder->packet.hscroll.header.magic = LE32(SS_HSCROLL_MAGIC);
     holder->packet.hscroll.scrollAmount = BE16(scrollAmount);
@@ -1507,12 +1262,6 @@ int LiSendTouchEvent(uint8_t eventType, uint32_t pointerId, float x, float y, fl
     if (holder == NULL) {
         return -1;
     }
-
-    holder->channelId = CTRL_CHANNEL_TOUCH;
-
-    // Allow move and hover events to be dropped if a newer one arrives, but don't allow
-    // state changing events like up/down/leave events to be dropped.
-    holder->enetPacketFlags = TOUCH_EVENT_IS_BATCHABLE(eventType) ? 0 : ENET_PACKET_FLAG_RELIABLE;
 
     holder->packet.touch.header.size = BE32(sizeof(SS_TOUCH_PACKET) - sizeof(uint32_t));
     holder->packet.touch.header.magic = LE32(SS_TOUCH_MAGIC);
@@ -1557,11 +1306,6 @@ int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
         return -1;
     }
 
-    holder->channelId = CTRL_CHANNEL_PEN;
-
-    // Allow move and hover events to be dropped if a newer one arrives (if no buttons changed),
-    // but don't allow state changing events like up/down/leave events to be dropped.
-    holder->enetPacketFlags = (TOUCH_EVENT_IS_BATCHABLE(eventType) && !(penButtons ^ currentPenButtonState)) ? 0 : ENET_PACKET_FLAG_RELIABLE;
     currentPenButtonState = penButtons;
 
     holder->packet.pen.header.size = BE32(sizeof(SS_PEN_PACKET) - sizeof(uint32_t));
@@ -1613,10 +1357,6 @@ int LiSendControllerArrivalEvent(uint8_t controllerNumber, uint16_t activeGamepa
             return -1;
         }
 
-        // Send each controller on a separate channel
-        holder->channelId = CTRL_CHANNEL_GAMEPAD_BASE + controllerNumber;
-        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
-
         holder->packet.controllerArrival.header.size = BE32(sizeof(SS_CONTROLLER_ARRIVAL_PACKET) - sizeof(uint32_t));
         holder->packet.controllerArrival.header.magic = LE32(SS_CONTROLLER_ARRIVAL_MAGIC);
         holder->packet.controllerArrival.controllerNumber = controllerNumber;
@@ -1657,13 +1397,6 @@ int LiSendControllerTouchEvent2(uint8_t controllerNumber, uint8_t eventType, uin
     if (holder == NULL) {
         return -1;
     }
-
-    // Send each controller on a separate channel
-    holder->channelId = CTRL_CHANNEL_GAMEPAD_BASE + controllerNumber;
-
-    // Allow move and hover events to be dropped if a newer one arrives, but don't allow
-    // state changing events like up/down/leave events to be dropped.
-    holder->enetPacketFlags = TOUCH_EVENT_IS_BATCHABLE(eventType) ? 0 : ENET_PACKET_FLAG_RELIABLE;
 
     holder->packet.controllerTouch.header.size = BE32(sizeof(SS_CONTROLLER_TOUCH_PACKET) - sizeof(uint32_t));
     holder->packet.controllerTouch.header.magic = LE32(SS_CONTROLLER_TOUCH_MAGIC);
@@ -1731,9 +1464,6 @@ int LiSendControllerMotionEvent(uint8_t controllerNumber, uint8_t motionType, fl
             return -1;
         }
 
-        // Send each controller on a separate channel specific to motion sensors
-        holder->channelId = CTRL_CHANNEL_SENSOR_BASE + controllerNumber;
-
         holder->packet.controllerMotion.header.size = BE32(sizeof(SS_CONTROLLER_MOTION_PACKET) - sizeof(uint32_t));
         holder->packet.controllerMotion.header.magic = LE32(SS_CONTROLLER_MOTION_MAGIC);
         holder->packet.controllerMotion.controllerNumber = controllerNumber;
@@ -1781,10 +1511,6 @@ int LiSendControllerBatteryEvent(uint8_t controllerNumber, uint8_t batteryState,
     if (holder == NULL) {
         return -1;
     }
-
-    // Send each controller on a separate channel
-    holder->channelId = CTRL_CHANNEL_GAMEPAD_BASE + controllerNumber;
-    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
 
     holder->packet.controllerBattery.header.size = BE32(sizeof(SS_CONTROLLER_BATTERY_PACKET) - sizeof(uint32_t));
     holder->packet.controllerBattery.header.magic = LE32(SS_CONTROLLER_BATTERY_MAGIC);

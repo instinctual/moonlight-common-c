@@ -10,12 +10,6 @@ option(CODE_ANALYSIS "Run code analysis during compilation" OFF)
 
 SET(CMAKE_C_STANDARD 11)
 
-set(CMAKE_POSITION_INDEPENDENT_CODE_BACKUP ${CMAKE_POSITION_INDEPENDENT_CODE})
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-add_subdirectory(enet)
-set(CMAKE_POSITION_INDEPENDENT_CODE ${CMAKE_POSITION_INDEPENDENT_CODE_BACKUP})
-unset(CMAKE_POSITION_INDEPENDENT_CODE_BACKUP)
-
 aux_source_directory(src SRC_LIST)
 
 # Build shared library by default, but allows user override
@@ -31,7 +25,21 @@ if (BUILD_SHARED_LIBS_OVERRIDE)
   unset(BUILD_SHARED_LIBS_OVERRIDE)
 endif()
 
-target_link_libraries(moonlight-common-c PRIVATE enet)
+set(STATIONCONNECT_DATASMASH_TRANSPORT_DIR "" CACHE PATH
+    "Path to the StationConnect Datasmash transport source")
+if (NOT STATIONCONNECT_DATASMASH_TRANSPORT_DIR)
+  get_filename_component(STATIONCONNECT_DATASMASH_TRANSPORT_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../protocol/datasmash-transport"
+    ABSOLUTE)
+endif()
+if (NOT EXISTS
+    "${STATIONCONNECT_DATASMASH_TRANSPORT_DIR}/include/stationconnect_datasmash_input.h")
+  message(FATAL_ERROR
+    "StationConnect Datasmash input header not found under "
+    "${STATIONCONNECT_DATASMASH_TRANSPORT_DIR}")
+endif()
+target_include_directories(moonlight-common-c PRIVATE
+  "${STATIONCONNECT_DATASMASH_TRANSPORT_DIR}/include")
 
 if(MSVC)
   target_compile_options(moonlight-common-c PRIVATE /W3 /wd4100 /wd4232 /wd5105 /WX)
@@ -74,6 +82,7 @@ else()
 endif()
 
 if (NOT(MSVC OR APPLE))
+  include(CheckCSourceCompiles)
   include(CheckLibraryExists)
   CHECK_LIBRARY_EXISTS(rt clock_gettime "" HAVE_CLOCK_GETTIME)
 
@@ -85,7 +94,7 @@ if (NOT(MSVC OR APPLE))
 
   foreach(clock CLOCK_MONOTONIC CLOCK_MONOTONIC_RAW)
     message(STATUS "Testing whether ${clock} can be used")
-    CHECK_CXX_SOURCE_COMPILES(
+    CHECK_C_SOURCE_COMPILES(
 "#define _POSIX_C_SOURCE 200112L
 #include <time.h>
 int main ()

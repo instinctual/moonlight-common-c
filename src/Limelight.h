@@ -594,10 +594,8 @@ void LiInterruptConnection(void);
 // from the integer passed to the ConnListenerStageXXX callbacks
 const char* LiGetStageName(int stage);
 
-// This function returns an estimate of the current RTT to the host PC obtained via ENet
-// protocol statistics. This function will fail if the current GFE version does not use
-// ENet for the control stream (very old versions), or if the ENet peer is not connected.
-// This function may only be called between LiStartConnection() and LiStopConnection().
+// The StationConnect client obtains RTT from its native transport telemetry.
+// This compatibility query therefore returns false.
 bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVariance);
 
 // This function queues a relative mouse move event to be sent to the remote server.

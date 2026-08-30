@@ -221,7 +221,7 @@ int recvUdpSocket(SOCKET s, char* buffer, int size, bool useSelect) {
 
     // We may receive an error due to a previous ICMP Port Unreachable error received
     // by this socket. We want to ignore those and continue reading. If the remote party
-    // is really dead, ENet or TCP connection failures will trigger connection teardown.
+    // is really dead, the native transport or TCP setup failure will trigger teardown.
 #if defined(LC_WINDOWS) && !defined(NXDK)
     } while (err < 0 && LastSocketError() == WSAECONNRESET);
 #else
