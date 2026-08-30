@@ -328,6 +328,10 @@ static bool supportsIdrFrameRequest;
 int initializeControlStream(void) {
     stopping = false;
     nativeControlStream = nativeControlSender != NULL;
+    if (!nativeControlStream) {
+        Limelog("StationConnect native control sender is required\n");
+        return -1;
+    }
     PltCreateEvent(&idrFrameRequiredEvent);
     LbqInitializeLinkedBlockingQueue(&referenceFrameControlQueue, 20);
     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
@@ -1821,22 +1825,10 @@ int stopControlStream(void) {
         shutdownTcpSocket(ctlSock);
     }
 
-    if (nativeControlStream) {
-        PltInterruptThread(&requestIdrFrameThread);
-        PltInterruptThread(&asyncCallbackThread);
-        PltJoinThread(&requestIdrFrameThread);
-        PltJoinThread(&asyncCallbackThread);
-    }
-    else {
-        PltInterruptThread(&lossStatsThread);
-        PltInterruptThread(&requestIdrFrameThread);
-        PltInterruptThread(&controlReceiveThread);
-        PltInterruptThread(&asyncCallbackThread);
-        PltJoinThread(&lossStatsThread);
-        PltJoinThread(&requestIdrFrameThread);
-        PltJoinThread(&controlReceiveThread);
-        PltJoinThread(&asyncCallbackThread);
-    }
+    PltInterruptThread(&requestIdrFrameThread);
+    PltInterruptThread(&asyncCallbackThread);
+    PltJoinThread(&requestIdrFrameThread);
+    PltJoinThread(&asyncCallbackThread);
 
     // We will only have an RFI thread if RFI is enabled
     if (isReferenceFrameInvalidationEnabled()) {

@@ -935,12 +935,6 @@ typedef struct _RTP_VIDEO_STATS {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 
-// Select the native StationConnect media path before LiStartConnection().
-// Native media bypasses the legacy UDP ping, receive, RTP, AES, and
-// Reed-Solomon threads. Passing false selects the normal GameStream media
-// path. The value must not change until after LiStopConnection().
-void LiSetStationConnectNativeMediaEnabled(bool enabled);
-
 // Submit a complete KyProto-reconstructed Annex-B frame directly to the
 // decoder queue. This path bypasses GameStream RTP, AES, Reed-Solomon, and
 // depacketization. Returns 0 when queued, 1 when deliberately discarded while
@@ -965,7 +959,7 @@ int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
 // Route StationConnect recovery and bitrate requests through a native reliable
 // data plane without wrapping them in encrypted GameStream control packets.
 // The sender must copy the values before returning and returns zero on success.
-// Passing NULL restores the normal GameStream control path.
+// The sender is required for every StationConnect session.
 #define LI_SC_NATIVE_CONTROL_REQUEST_IDR                 1u
 #define LI_SC_NATIVE_CONTROL_INVALIDATE_REFERENCE_FRAMES 2u
 #define LI_SC_NATIVE_CONTROL_SET_VIDEO_BITRATE           3u
@@ -979,7 +973,7 @@ void LiSetStationConnectNativeControlSender(
 // Route StationConnect keyboard, absolute mouse, scrolling, pen, and raw-HID
 // Wacom messages through Kyber's native reliable input protocol. The payload
 // is one complete stationconnect_datasmash_input.h message and must be copied
-// before the callback returns. Passing NULL restores the legacy transport.
+// before the callback returns. The sender is required for every session.
 typedef int(*StationConnectNativeInputSender)(void* context,
                                               uint8_t type,
                                               const unsigned char* payload,

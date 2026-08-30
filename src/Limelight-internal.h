@@ -52,8 +52,6 @@ extern uint32_t SunshineFeatureFlags;
 extern uint32_t EncryptionFeaturesSupported;
 extern uint32_t EncryptionFeaturesRequested;
 extern uint32_t EncryptionFeaturesEnabled;
-extern bool StationConnectNativeMediaEnabled;
-
 // ENet channel ID values
 #define CTRL_CHANNEL_GENERIC      0x00
 #define CTRL_CHANNEL_URGENT       0x01 // IDR, LTR ACK and RFI
