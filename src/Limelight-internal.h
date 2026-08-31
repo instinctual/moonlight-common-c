@@ -25,7 +25,6 @@ extern bool HighQualitySurroundEnabled;
 extern OPUS_MULTISTREAM_CONFIGURATION NormalQualityOpusConfig;
 extern OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 extern int AudioPacketDuration;
-extern bool AudioEncryptionEnabled;
 extern bool ReferenceFrameInvalidationSupported;
 
 extern uint16_t RtspPortNumber;
@@ -39,14 +38,6 @@ extern uint32_t ControlConnectData;
 
 extern uint32_t SunshineFeatureFlags;
 
-// Encryption flags shared by Sunshine and Moonlight in RTSP
-#define SS_ENC_CONTROL_V2 0x01
-#define SS_ENC_VIDEO 0x02
-#define SS_ENC_AUDIO 0x04
-
-extern uint32_t EncryptionFeaturesSupported;
-extern uint32_t EncryptionFeaturesRequested;
-extern uint32_t EncryptionFeaturesEnabled;
 #ifndef UINT24_MAX
 #define UINT24_MAX 0xFFFFFF
 #endif

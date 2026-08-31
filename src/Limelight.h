@@ -32,12 +32,6 @@ extern "C" {
 #define COLOR_RANGE_LIMITED  0
 #define COLOR_RANGE_FULL     1
 
-// Values for 'encryptionFlags' field below
-#define ENCFLG_NONE  0x00000000
-#define ENCFLG_AUDIO 0x00000001
-#define ENCFLG_VIDEO 0x00000002
-#define ENCFLG_ALL   0xFFFFFFFF
-
 // This function returns a string that you SHOULD append to the /launch and /resume
 // query parameter string. This is used to enable certain extended functionality
 // with Sunshine hosts. The returned string is owned by moonlight-common-c and
@@ -90,17 +84,9 @@ typedef struct _STREAM_CONFIGURATION {
     // option (listed above). If not set, the encoder will default to Limited.
     int colorRange;
 
-    // Specifies the data streams where encryption may be enabled if supported
-    // by the host PC. Ideally, you would pass ENCFLG_ALL to encrypt everything
-    // that we support encrypting. However, lower performance hardware may not
-    // be able to support encrypting heavy stuff like video or audio data, so
-    // that encryption may be disabled here. Remote input encryption is always
-    // enabled.
-    int encryptionFlags;
-
-    // AES encryption data for the remote input stream. This must be
-    // the same as what was passed as rikey and rikeyid
-    // in /launch and /resume requests.
+    // AES-GCM key material for the temporary encrypted RTSP setup channel.
+    // This must match the rikey and rikeyid values sent in the authenticated
+    // launch or resume request.
     char remoteInputAesKey[16];
     char remoteInputAesIv[16];
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;

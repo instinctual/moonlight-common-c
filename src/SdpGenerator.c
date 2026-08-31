@@ -174,33 +174,8 @@ static int addGen4Options(PSDP_OPTION* head, char* addrStr) {
     return err;
 }
 
-#define NVFF_BASE             0x07
-#define NVFF_AUDIO_ENCRYPTION 0x20
-#define NVFF_RI_ENCRYPTION    0x80
-
 static int addGen5Options(PSDP_OPTION* head) {
     int err = 0;
-    char payloadStr[32];
-
-    // This must be initialized to false already
-    LC_ASSERT(!AudioEncryptionEnabled);
-
-    if (APP_VERSION_AT_LEAST(7, 1, 431)) {
-        unsigned int featureFlags;
-
-        // RI encryption is always enabled
-        featureFlags = NVFF_BASE | NVFF_RI_ENCRYPTION;
-
-        // Enable audio encryption if the client opted in or the host required it
-        if ((StreamConfig.encryptionFlags & ENCFLG_AUDIO) || (EncryptionFeaturesEnabled & SS_ENC_AUDIO)) {
-            featureFlags |= NVFF_AUDIO_ENCRYPTION;
-            AudioEncryptionEnabled = true;
-        }
-
-        snprintf(payloadStr, sizeof(payloadStr), "%u", featureFlags);
-        err |= addAttributeString(head, "x-nv-general.featureFlags", payloadStr);
-
-    }
     
     if (APP_VERSION_AT_LEAST(7, 1, 446) && (StreamConfig.width < 720 || StreamConfig.height < 540)) {
         // We enable DRC with a static DRC table for very low resoutions on GFE 3.26 to work around
@@ -249,36 +224,6 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, moonlightFeatureFlags);
         err |= addAttributeString(&optionHead, "x-ml-general.featureFlags", payloadStr);
 
-        // New-style control stream encryption is low overhead, so we enable it any time it is supported
-        if (EncryptionFeaturesSupported & SS_ENC_CONTROL_V2) {
-            EncryptionFeaturesEnabled |= SS_ENC_CONTROL_V2;
-        }
-
-        // If video encryption is supported by the host and desired by the client, use it
-        if ((EncryptionFeaturesSupported & SS_ENC_VIDEO) && (StreamConfig.encryptionFlags & ENCFLG_VIDEO)) {
-            EncryptionFeaturesEnabled |= SS_ENC_VIDEO;
-        }
-        else if ((EncryptionFeaturesRequested & SS_ENC_VIDEO) && !(StreamConfig.encryptionFlags & ENCFLG_VIDEO)) {
-            // If video encryption is explicitly requested by the host but *not* by the client,
-            // we'll encrypt anyway (since we are capable of doing so) and print a warning.
-            Limelog("Enabling video encryption by host request despite client opt-out. Performance may suffer!");
-            EncryptionFeaturesEnabled |= SS_ENC_VIDEO;
-        }
-
-        // If audio encryption is supported by the host and desired by the client, use it
-        if ((EncryptionFeaturesSupported & SS_ENC_AUDIO) && (StreamConfig.encryptionFlags & ENCFLG_AUDIO)) {
-            EncryptionFeaturesEnabled |= SS_ENC_AUDIO;
-        }
-        else if ((EncryptionFeaturesRequested & SS_ENC_AUDIO) && !(StreamConfig.encryptionFlags & ENCFLG_AUDIO)) {
-            // If audio encryption is explicitly requested by the host but *not* by the client,
-            // we'll encrypt anyway (since we are capable of doing so) and print a warning.
-            Limelog("Enabling audio encryption by host request despite client opt-out. Audio quality may suffer!");
-            EncryptionFeaturesEnabled |= SS_ENC_AUDIO;
-        }
-
-        snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, EncryptionFeaturesEnabled);
-        err |= addAttributeString(&optionHead, "x-ss-general.encryptionEnabled", payloadStr);
-
         // Enable YUV444 if requested
         if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_YUV444) {
             err |= addAttributeString(&optionHead, "x-ss-video[0].chromaSamplingType", "1");
@@ -299,12 +244,6 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
     snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.fps);
     err |= addAttributeString(&optionHead, "x-nv-video[0].maxFPS", payloadStr);
 
-    // Adjust the video packet size to account for encryption overhead
-    if (EncryptionFeaturesEnabled & SS_ENC_VIDEO) {
-        LC_ASSERT(StreamConfig.packetSize % 16 == 0);
-        StreamConfig.packetSize -= sizeof(ENC_VIDEO_HEADER);
-        LC_ASSERT(StreamConfig.packetSize % 16 == 0);
-    }
     snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.packetSize);
     err |= addAttributeString(&optionHead, "x-nv-video[0].packetSize", payloadStr);
 

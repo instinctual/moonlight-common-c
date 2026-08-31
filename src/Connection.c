@@ -23,7 +23,6 @@ bool HighQualitySurroundEnabled;
 OPUS_MULTISTREAM_CONFIGURATION NormalQualityOpusConfig;
 OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 int AudioPacketDuration;
-bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
 uint16_t RtspPortNumber;
 uint16_t ControlPortNumber;
@@ -33,9 +32,6 @@ SS_PING AudioPingPayload;
 SS_PING VideoPingPayload;
 uint32_t ControlConnectData;
 uint32_t SunshineFeatureFlags;
-uint32_t EncryptionFeaturesSupported;
-uint32_t EncryptionFeaturesRequested;
-uint32_t EncryptionFeaturesEnabled;
 
 // Connection stages
 static const char* stageNames[STAGE_MAX] = {

@@ -9,15 +9,6 @@ typedef struct _QUEUED_DECODE_UNIT {
 
 #pragma pack(push, 1)
 
-// The encrypted video header must be a multiple
-// of 16 bytes in size to ensure the block size
-// for FEC stays a multiple of 16 too.
-typedef struct _ENC_VIDEO_HEADER {
-    uint8_t iv[12];
-    uint32_t frameNumber;
-    uint8_t tag[16];
-} ENC_VIDEO_HEADER, *PENC_VIDEO_HEADER;
-
 // Fields are big-endian
 typedef struct _SS_PING {
     char payload[16];
