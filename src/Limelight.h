@@ -16,11 +16,6 @@ extern "C" {
 // Enable this definition during debugging to enable assertions
 //#define LC_DEBUG
 
-// Values for the 'streamingRemotely' field below
-#define STREAM_CFG_LOCAL   0
-#define STREAM_CFG_REMOTE  1
-#define STREAM_CFG_AUTO    2
-
 // Values for the 'colorSpace' field below.
 // Rec. 2020 is not supported with H.264 video streams on GFE hosts.
 #define COLORSPACE_REC_601  0
@@ -48,18 +43,6 @@ typedef struct _STREAM_CONFIGURATION {
     // includes error correction data, so the actual encoder bitrate will be
     // about 20% lower when using the standard 20% FEC configuration.
     int bitrate;
-
-    // Max video packet size in bytes (use 1024 if unsure). If STREAM_CFG_AUTO
-    // determines the stream is remote (see below), it will cap this value at
-    // 1024 to avoid MTU-related issues like packet loss and fragmentation.
-    int packetSize;
-
-    // Determines whether to enable remote (over the Internet)
-    // streaming optimizations. If unsure, set to STREAM_CFG_AUTO.
-    // STREAM_CFG_AUTO uses a heuristic (whether the target address is
-    // in the RFC 1918 address blocks) to decide whether the stream
-    // is remote or not.
-    int streamingRemotely;
 
     // Specifies the channel configuration of the audio stream.
     // See AUDIO_CONFIGURATION constants and MAKE_AUDIO_CONFIGURATION() below.

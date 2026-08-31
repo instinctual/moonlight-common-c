@@ -276,16 +276,6 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         goto Cleanup;
     }
 
-    // FEC only works in 16 byte chunks, so we must round down
-    // the given packet size to the nearest multiple of 16.
-    StreamConfig.packetSize -= StreamConfig.packetSize % 16;
-
-    if (StreamConfig.packetSize == 0) {
-        Limelog("Invalid packet size specified\n");
-        err = -1;
-        goto Cleanup;
-    }
-
     // Height must not be odd or NVENC will fail to initialize
     if (StreamConfig.height & 0x1) {
         Limelog("Encoder height must not be odd. Rounding %d to %d\n",
@@ -360,35 +350,6 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     LC_ASSERT(stage == STAGE_NAME_RESOLUTION);
     ListenerCallbacks.stageComplete(STAGE_NAME_RESOLUTION);
     Limelog("done\n");
-
-    // If STREAM_CFG_AUTO was requested, determine the streamingRemotely value
-    // now that we have resolved the target address and impose the video packet
-    // size cap if required.
-    if (StreamConfig.streamingRemotely == STREAM_CFG_AUTO) {
-        bool isNat64 = isNat64SynthesizedAddress(&RemoteAddr);
-
-        // It's possible to have a NAT64 prefix on a ULA or other private range,
-        // so we must exclude NAT64 addresses from our local address checks.
-        if (!isNat64 && isPrivateNetworkAddress(&RemoteAddr)) {
-            StreamConfig.streamingRemotely = STREAM_CFG_LOCAL;
-        }
-        else {
-            StreamConfig.streamingRemotely = STREAM_CFG_REMOTE;
-
-            if (RemoteAddr.ss_family == AF_INET || isNat64) {
-                // Cap packet size at 1024 for remote IPv4 streaming to avoid fragmentation.
-                Limelog("Packet size capped at 1024 bytes for remote IPv4 streaming\n");
-                StreamConfig.packetSize = 1024;
-            }
-            else {
-                // IPv6 guarantees a minimum MTU of 1280 before fragmentation, so use a higher
-                // packet size cap for remote IPv6 streaming (when not using NAT64 which isn't
-                // end-to-end IPv6 traffic).
-                Limelog("Packet size capped at 1184 bytes for remote IPv6 streaming\n");
-                StreamConfig.packetSize = 1184;
-            }
-        }
-    }
 
     Limelog("Initializing audio stream...");
     ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_INIT);
