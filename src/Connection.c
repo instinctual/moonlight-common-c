@@ -62,6 +62,8 @@ int LiSetStationConnectNativeSessionConfiguration(
             configuration->structSize != sizeof(*configuration) ||
             configuration->reserved != 0 ||
             configuration->negotiatedVideoFormat == 0 ||
+            configuration->hostFeatureFlags == 0 ||
+            configuration->referenceFrameInvalidationSupported > 1 ||
             configuration->audioPacketDurationMs == 0 ||
             configuration->audioPacketDurationMs > 120 ||
             configuration->opusConfiguration.sampleRate != 48000 ||
@@ -284,6 +286,10 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     memset(&LocalAddr, 0, sizeof(LocalAddr));
     NegotiatedVideoFormat = nativeSessionNegotiated ?
         (int)NativeSessionConfiguration.negotiatedVideoFormat : 0;
+    SunshineFeatureFlags = nativeSessionNegotiated ?
+        NativeSessionConfiguration.hostFeatureFlags : 0;
+    ReferenceFrameInvalidationSupported = nativeSessionNegotiated &&
+        NativeSessionConfiguration.referenceFrameInvalidationSupported != 0;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     RemoteAddrString = strdup(serverInfo->address);
 

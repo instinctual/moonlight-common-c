@@ -564,7 +564,9 @@ typedef struct _SERVER_INFORMATION {
 typedef struct _STATIONCONNECT_NATIVE_SESSION_CONFIGURATION {
     uint32_t structSize;
     uint32_t negotiatedVideoFormat;
+    uint32_t hostFeatureFlags;
     uint32_t audioPacketDurationMs;
+    uint32_t referenceFrameInvalidationSupported;
     uint32_t reserved;
     OPUS_MULTISTREAM_CONFIGURATION opusConfiguration;
 } STATIONCONNECT_NATIVE_SESSION_CONFIGURATION,
