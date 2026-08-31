@@ -383,8 +383,8 @@ typedef void(*ConnListenerConnectionTerminated)(int errorCode);
 
 // This error is passed to ConnListenerConnectionTerminated() if no video data
 // was ever received for this connection after waiting several seconds. It likely
-// indicates a problem with traffic on UDP 47989 due to missing or incorrect
-// firewall or port forwarding rules.
+// indicates a problem with traffic on the configured StationConnect UDP port
+// due to missing or incorrect firewall rules.
 #define ML_ERROR_NO_VIDEO_TRAFFIC -100
 
 // This error is passed to ConnListenerConnectionTerminated() if a fully formed
@@ -540,7 +540,7 @@ typedef struct _STATIONCONNECT_NATIVE_SESSION_CONFIGURATION {
     uint32_t hostFeatureFlags;
     uint32_t audioPacketDurationMs;
     uint32_t referenceFrameInvalidationSupported;
-    uint32_t reserved;
+    uint32_t sessionPort;
     OPUS_MULTISTREAM_CONFIGURATION opusConfiguration;
 } STATIONCONNECT_NATIVE_SESSION_CONFIGURATION,
   *PSTATIONCONNECT_NATIVE_SESSION_CONFIGURATION;

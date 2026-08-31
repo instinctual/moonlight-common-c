@@ -53,7 +53,8 @@ int LiSetStationConnectNativeSessionConfiguration(
     const STATIONCONNECT_NATIVE_SESSION_CONFIGURATION* configuration) {
     if (configuration == NULL ||
             configuration->structSize != sizeof(*configuration) ||
-            configuration->reserved != 0 ||
+            configuration->sessionPort == 0 ||
+            configuration->sessionPort > UINT16_MAX ||
             configuration->negotiatedVideoFormat == 0 ||
             configuration->hostFeatureFlags == 0 ||
             configuration->referenceFrameInvalidationSupported > 1 ||
@@ -201,12 +202,13 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDERER_CALLBACKS arCallbacks, void* renderContext, int drFlags,
     void* audioContext, int arFlags) {
     int err;
-    const uint16_t sessionPortNumber = 47989;
+    uint16_t sessionPortNumber;
 
     if (!NativeSessionConfigurationPending) {
         Limelog("StationConnect native session configuration is required\n");
         return -1;
     }
+    sessionPortNumber = (uint16_t) NativeSessionConfiguration.sessionPort;
 
     if (drCallbacks != NULL && (drCallbacks->capabilities & CAPABILITY_PULL_RENDERER) && drCallbacks->submitDecodeUnit) {
         Limelog("CAPABILITY_PULL_RENDERER cannot be set with a submitDecodeUnit callback\n");
