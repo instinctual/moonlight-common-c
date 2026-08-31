@@ -7,8 +7,6 @@
 #include "PlatformCrypto.h"
 #include "Video.h"
 #include "Input.h"
-#include "LegacyRtpVideoPacket.h"
-#include "ByteBuffer.h"
 
 // Common globals
 extern char* RemoteAddrString;
@@ -69,10 +67,7 @@ extern uint32_t EncryptionFeaturesEnabled;
 #define IS_SUNSHINE() (AppVersionQuad[3] < 0)
 
 // Client feature flags for x-ml-general.featureFlags SDP attribute
-#define ML_FF_FEC_STATUS 0x01 // Client sends SS_FRAME_FEC_STATUS for frame losses
-#define ML_FF_SESSION_ID_V1 0x02 // Client supports X-SS-Ping-Payload and X-SS-Connect-Data
 #define ML_FF_IDENTITY_GBR_444 0x04 // Client requests full-range identity G,B,R plane mapping
-#define ML_FF_EXTENDED_FEC_BLOCKS 0x08 // Client supports up to 16 video FEC blocks per frame
 #define ML_FF_LOCAL_CURSOR SC_CURSOR_CLIENT_FEATURE_FLAG // Client presents host cursor shapes through its local compositor cursor
 
 #define UDP_RECV_POLL_TIMEOUT_MS 100
@@ -107,12 +102,10 @@ void connectionDetectedFrameLoss(uint32_t startFrame, uint32_t endFrame);
 void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR);
 int performRtspHandshake(PSERVER_INFORMATION serverInfo);
 
-void initializeVideoDepacketizer(int pktSize);
-void destroyVideoDepacketizer(void);
-void queueRtpPacket(PRTPV_QUEUE_ENTRY queueEntry);
-void stopVideoDepacketizer(void);
+void initializeVideoFrameAssembler(void);
+void destroyVideoFrameAssembler(void);
+void stopVideoFrameAssembler(void);
 void requestDecoderRefresh(void);
-void notifyFrameLost(unsigned int frameNumber, bool speculative);
 
 void initializeVideoStream(void);
 void destroyVideoStream(void);

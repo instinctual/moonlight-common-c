@@ -18,12 +18,12 @@ static void VideoDecoderThreadProc(void* context) {
 }
 
 void initializeVideoStream(void) {
-    initializeVideoDepacketizer(StreamConfig.packetSize);
+    initializeVideoFrameAssembler();
     memset(&nativeVideoStats, 0, sizeof(nativeVideoStats));
 }
 
 void destroyVideoStream(void) {
-    destroyVideoDepacketizer();
+    destroyVideoFrameAssembler();
 }
 
 void notifyKeyFrameReceived(void) {
@@ -35,7 +35,7 @@ int readFirstFrame(void) {
 
 void stopVideoStream(void) {
     VideoCallbacks.stop();
-    stopVideoDepacketizer();
+    stopVideoFrameAssembler();
 
     if ((VideoCallbacks.capabilities &
             (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
