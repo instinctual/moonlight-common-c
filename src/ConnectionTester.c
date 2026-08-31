@@ -18,8 +18,7 @@ unsigned int LiGetPortFlagsFromStage(int stage)
 {
     switch (stage)
     {
-        case STAGE_RTSP_HANDSHAKE:
-            // GFE 3.22 requires a successful ping on 48000 to complete RTSP handshake
+        case STAGE_SESSION_NEGOTIATION:
             return ML_PORT_FLAG_TCP_48010 | ML_PORT_FLAG_UDP_48010 | ML_PORT_FLAG_UDP_48000;
 
         case STAGE_CONTROL_STREAM_START:

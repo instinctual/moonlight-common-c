@@ -36,8 +36,6 @@ extern "C" {
 // query parameter string. This is used to enable certain extended functionality
 // with Sunshine hosts. The returned string is owned by moonlight-common-c and
 // should not be freed by the caller.
-const char* LiGetLaunchUrlQueryParameters(void);
-
 typedef struct _STREAM_CONFIGURATION {
     // Dimensions in pixels of the desired video stream
     int width;
@@ -84,11 +82,6 @@ typedef struct _STREAM_CONFIGURATION {
     // option (listed above). If not set, the encoder will default to Limited.
     int colorRange;
 
-    // AES-GCM key material for the temporary encrypted RTSP setup channel.
-    // This must match the rikey and rikeyid values sent in the authenticated
-    // launch or resume request.
-    char remoteInputAesKey[16];
-    char remoteInputAesIv[16];
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Use this function to zero the stream configuration when allocated on the stack or heap
@@ -248,8 +241,8 @@ typedef struct _DECODE_UNIT {
 // supports reference frame invalidation for HEVC/H.265 streams. This flag is only valid on video renderers.
 #define CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC 0x4
 
-// If set in the audio renderer capabilities field, this flag will cause the RTSP negotiation
-// to never request the "high quality" audio preset. If unset, high quality audio will be
+// If set in the audio renderer capabilities field, native setup will never
+// request the "high quality" audio preset. If unset, high quality audio will be
 // used with video streams above 15 Mbps.
 #define CAPABILITY_SLOW_OPUS_DECODER 0x8
 
@@ -367,7 +360,7 @@ void LiInitializeAudioCallbacks(PAUDIO_RENDERER_CALLBACKS arCallbacks);
 #define STAGE_PLATFORM_INIT 1
 #define STAGE_NAME_RESOLUTION 2
 #define STAGE_AUDIO_STREAM_INIT 3
-#define STAGE_RTSP_HANDSHAKE 4
+#define STAGE_SESSION_NEGOTIATION 4
 #define STAGE_CONTROL_STREAM_INIT 5
 #define STAGE_VIDEO_STREAM_INIT 6
 #define STAGE_INPUT_STREAM_INIT 7
@@ -548,18 +541,15 @@ typedef struct _SERVER_INFORMATION {
     // Text inside 'GfeVersion' tag in /serverinfo (if present)
     const char* serverInfoGfeVersion;
 
-    // Text inside 'sessionUrl0' tag in /resume and /launch (if present)
-    const char* rtspSessionUrl;
-
     // Specifies the 'ServerCodecModeSupport' from the /serverinfo response.
     int serverCodecModeSupport;
 } SERVER_INFORMATION, *PSERVER_INFORMATION;
 
 /*
  * Exact stream values accepted by the StationConnect native QUIC setup
- * exchange. Supplying this immediately before LiStartConnection() bypasses
- * the legacy TCP RTSP handshake. The configuration is consumed once and is
- * never a fallback: malformed or incomplete values fail the connection.
+ * exchange. Supplying this immediately before LiStartConnection() is
+ * mandatory. The configuration is consumed once; malformed or incomplete
+ * values fail the connection.
  */
 typedef struct _STATIONCONNECT_NATIVE_SESSION_CONFIGURATION {
     uint32_t structSize;

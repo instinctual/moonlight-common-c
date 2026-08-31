@@ -7,10 +7,6 @@ int initializeAudioStream(void) {
     return 0;
 }
 
-int notifyAudioPortNegotiationComplete(void) {
-    return 0;
-}
-
 void destroyAudioStream(void) {
 }
 

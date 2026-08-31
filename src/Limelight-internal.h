@@ -27,15 +27,6 @@ extern OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 extern int AudioPacketDuration;
 extern bool ReferenceFrameInvalidationSupported;
 
-extern uint16_t RtspPortNumber;
-extern uint16_t ControlPortNumber;
-extern uint16_t AudioPortNumber;
-extern uint16_t VideoPortNumber;
-
-extern SS_PING AudioPingPayload;
-extern SS_PING VideoPingPayload;
-extern uint32_t ControlConnectData;
-
 extern uint32_t SunshineFeatureFlags;
 
 #ifndef UINT24_MAX
@@ -57,7 +48,7 @@ extern uint32_t SunshineFeatureFlags;
 
 #define IS_SUNSHINE() (AppVersionQuad[3] < 0)
 
-// Client feature flags for x-ml-general.featureFlags SDP attribute
+// Client feature flags negotiated by StationConnect native setup.
 #define ML_FF_IDENTITY_GBR_444 0x04 // Client requests full-range identity G,B,R plane mapping
 #define ML_FF_LOCAL_CURSOR SC_CURSOR_CLIENT_FEATURE_FLAG // Client presents host cursor shapes through its local compositor cursor
 
@@ -83,15 +74,12 @@ void fixupMissingCallbacks(PDECODER_RENDERER_CALLBACKS* drCallbacks, PAUDIO_REND
     PCONNECTION_LISTENER_CALLBACKS* clCallbacks);
 void setRecorderCallbacks(PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDERER_CALLBACKS arCallbacks);
 
-char* getSdpPayloadForStreamConfig(int rtspClientVersion, int* length);
-
 int initializeControlStream(void);
 int startControlStream(void);
 int stopControlStream(void);
 void destroyControlStream(void);
 void connectionDetectedFrameLoss(uint32_t startFrame, uint32_t endFrame);
 void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR);
-int performRtspHandshake(PSERVER_INFORMATION serverInfo);
 
 void initializeVideoFrameAssembler(void);
 void destroyVideoFrameAssembler(void);
@@ -105,7 +93,6 @@ int startVideoStream(void* rendererContext, int drFlags);
 void stopVideoStream(void);
 
 int initializeAudioStream(void);
-int notifyAudioPortNegotiationComplete(void);
 void destroyAudioStream(void);
 int startAudioStream(void* audioContext, int arFlags);
 void stopAudioStream(void);

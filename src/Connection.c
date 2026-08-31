@@ -26,13 +26,6 @@ OPUS_MULTISTREAM_CONFIGURATION NormalQualityOpusConfig;
 OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 int AudioPacketDuration;
 bool ReferenceFrameInvalidationSupported;
-uint16_t RtspPortNumber;
-uint16_t ControlPortNumber;
-uint16_t AudioPortNumber;
-uint16_t VideoPortNumber;
-SS_PING AudioPingPayload;
-SS_PING VideoPingPayload;
-uint32_t ControlConnectData;
 uint32_t SunshineFeatureFlags;
 
 // Connection stages
@@ -139,7 +132,7 @@ void LiStopConnection(void) {
         stage--;
         Limelog("done\n");
     }
-    if (stage == STAGE_RTSP_HANDSHAKE) {
+    if (stage == STAGE_SESSION_NEGOTIATION) {
         // Nothing to do
         stage--;
     }
@@ -203,38 +196,17 @@ static void ClInternalConnectionTerminated(int errorCode)
     PltDetachThread(&terminationCallbackThread);
 }
 
-static bool parseRtspPortNumberFromUrl(const char* rtspSessionUrl, uint16_t* port)
-{
-    // If the session URL is not present, we will just use the well known port
-    if (rtspSessionUrl == NULL) {
-        return false;
-    }
-
-    // Pick the last colon in the string to match the port number
-    char* portNumberStart = strrchr(rtspSessionUrl, ':');
-    if (portNumberStart == NULL) {
-        return false;
-    }
-
-    // Skip the colon
-    portNumberStart++;
-
-    // Validate the port number
-    long int rawPort = strtol(portNumberStart, NULL, 10);
-    if (rawPort <= 0 || rawPort > 65535) {
-        return false;
-    }
-
-    *port = (uint16_t)rawPort;
-    return true;
-}
-
 // Starts the connection to the streaming machine
 int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION streamConfig, PCONNECTION_LISTENER_CALLBACKS clCallbacks,
     PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDERER_CALLBACKS arCallbacks, void* renderContext, int drFlags,
     void* audioContext, int arFlags) {
     int err;
-    const bool nativeSessionNegotiated = NativeSessionConfigurationPending;
+    const uint16_t sessionPortNumber = 47989;
+
+    if (!NativeSessionConfigurationPending) {
+        Limelog("StationConnect native session configuration is required\n");
+        return -1;
+    }
 
     if (drCallbacks != NULL && (drCallbacks->capabilities & CAPABILITY_PULL_RENDERER) && drCallbacks->submitDecodeUnit) {
         Limelog("CAPABILITY_PULL_RENDERER cannot be set with a submitDecodeUnit callback\n");
@@ -284,34 +256,14 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ListenerCallbacks.connectionTerminated = ClInternalConnectionTerminated;
 
     memset(&LocalAddr, 0, sizeof(LocalAddr));
-    NegotiatedVideoFormat = nativeSessionNegotiated ?
-        (int)NativeSessionConfiguration.negotiatedVideoFormat : 0;
-    SunshineFeatureFlags = nativeSessionNegotiated ?
-        NativeSessionConfiguration.hostFeatureFlags : 0;
-    ReferenceFrameInvalidationSupported = nativeSessionNegotiated &&
+    NegotiatedVideoFormat = (int)NativeSessionConfiguration.negotiatedVideoFormat;
+    SunshineFeatureFlags = NativeSessionConfiguration.hostFeatureFlags;
+    ReferenceFrameInvalidationSupported =
         NativeSessionConfiguration.referenceFrameInvalidationSupported != 0;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     RemoteAddrString = strdup(serverInfo->address);
 
-    // The values in RTSP SETUP will be used to populate these.
-    VideoPortNumber = 0;
-    ControlPortNumber = 0;
-    AudioPortNumber = 0;
-
-    // Parse RTSP port number from RTSP session URL
-    if (nativeSessionNegotiated) {
-        RtspPortNumber = 47989;
-        Limelog("Native QUIC session negotiation is complete\n");
-    }
-    else if (!parseRtspPortNumberFromUrl(serverInfo->rtspSessionUrl, &RtspPortNumber)) {
-        // Use the well known port if parsing fails
-        RtspPortNumber = 48010;
-
-        Limelog("RTSP port: %u (RTSP URL parsing failed)\n", RtspPortNumber);
-    }
-    else {
-        Limelog("RTSP port: %u\n", RtspPortNumber);
-    }
+    Limelog("Native QUIC session negotiation is complete\n");
 
     alreadyTerminated = false;
     ConnectionInterrupted = false;
@@ -378,32 +330,12 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     Limelog("Resolving host name...");
     ListenerCallbacks.stageStarting(STAGE_NAME_RESOLUTION);
-    LC_ASSERT(RtspPortNumber != 0);
-    if (RtspPortNumber != 48010) {
-        // If we have an alternate RTSP port, use that as our test port. The host probably
-        // isn't listening on 47989 or 47984 anyway, since they're using alternate ports.
-        err = resolveHostName(serverInfo->address, AF_UNSPEC, RtspPortNumber, &RemoteAddr, &AddrLen);
-        if (err != 0) {
-            // Sleep for a second and try again. It's possible that we've attempt to connect
-            // before the host has gotten around to listening on the RTSP port. Give it some
-            // time before retrying.
-            PltSleepMs(1000);
-            err = resolveHostName(serverInfo->address, AF_UNSPEC, RtspPortNumber, &RemoteAddr, &AddrLen);
-        }
-    }
-    else {
-        // We use TCP 47984 and 47989 first here because we know those should always be listening
-        // on hosts using the standard ports.
-        //
-        // TCP 48010 is a last resort because it may not be listening yet when
-        // the host first returns from launch.
-        err = resolveHostName(serverInfo->address, AF_UNSPEC, 47984, &RemoteAddr, &AddrLen);
-        if (err != 0) {
-            err = resolveHostName(serverInfo->address, AF_UNSPEC, 47989, &RemoteAddr, &AddrLen);
-        }
-        if (err != 0) {
-            err = resolveHostName(serverInfo->address, AF_UNSPEC, 48010, &RemoteAddr, &AddrLen);
-        }
+    err = resolveHostName(serverInfo->address, AF_UNSPEC, sessionPortNumber,
+                          &RemoteAddr, &AddrLen);
+    if (err != 0) {
+        PltSleepMs(1000);
+        err = resolveHostName(serverInfo->address, AF_UNSPEC, sessionPortNumber,
+                              &RemoteAddr, &AddrLen);
     }
     if (err != 0) {
         Limelog("failed: %d\n", err);
@@ -414,7 +346,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     // Resolve LocalAddr by RemoteAddr.
     {
         SOCKADDR_LEN localAddrLen;
-        err = getLocalAddressByUdpConnect(&RemoteAddr, AddrLen, RtspPortNumber, &LocalAddr, &localAddrLen);
+        err = getLocalAddressByUdpConnect(&RemoteAddr, AddrLen, sessionPortNumber,
+                                          &LocalAddr, &localAddrLen);
         if (err != 0) {
             Limelog("failed to resolve local addr: %d\n", err);
             ListenerCallbacks.stageFailed(STAGE_NAME_RESOLUTION, err);
@@ -470,25 +403,17 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_INIT);
     Limelog("done\n");
 
-    if (nativeSessionNegotiated) {
-        HighQualitySurroundSupported = false;
-        HighQualitySurroundEnabled = false;
-        NormalQualityOpusConfig = NativeSessionConfiguration.opusConfiguration;
-        memset(&HighQualityOpusConfig, 0, sizeof(HighQualityOpusConfig));
-        AudioPacketDuration = (int)NativeSessionConfiguration.audioPacketDurationMs;
-    }
+    HighQualitySurroundSupported = false;
+    HighQualitySurroundEnabled = false;
+    NormalQualityOpusConfig = NativeSessionConfiguration.opusConfiguration;
+    memset(&HighQualityOpusConfig, 0, sizeof(HighQualityOpusConfig));
+    AudioPacketDuration = (int)NativeSessionConfiguration.audioPacketDurationMs;
 
     Limelog("Starting session negotiation...");
-    ListenerCallbacks.stageStarting(STAGE_RTSP_HANDSHAKE);
-    err = nativeSessionNegotiated ? 0 : performRtspHandshake(serverInfo);
-    if (err != 0) {
-        Limelog("failed: %d\n", err);
-        ListenerCallbacks.stageFailed(STAGE_RTSP_HANDSHAKE, err);
-        goto Cleanup;
-    }
+    ListenerCallbacks.stageStarting(STAGE_SESSION_NEGOTIATION);
     stage++;
-    LC_ASSERT(stage == STAGE_RTSP_HANDSHAKE);
-    ListenerCallbacks.stageComplete(STAGE_RTSP_HANDSHAKE);
+    LC_ASSERT(stage == STAGE_SESSION_NEGOTIATION);
+    ListenerCallbacks.stageComplete(STAGE_SESSION_NEGOTIATION);
     Limelog("done\n");
 
     Limelog("Initializing control stream...");
@@ -588,10 +513,4 @@ Cleanup:
         LiStopConnection();
     }
     return err;
-}
-
-const char* LiGetLaunchUrlQueryParameters(void) {
-    // v0 = Video encryption and control stream encryption v2
-    // v1 = RTSP encryption
-    return "&corever=1";
 }
