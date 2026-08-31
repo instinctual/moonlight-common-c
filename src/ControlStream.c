@@ -390,13 +390,6 @@ int stopControlStream(void) {
     return 0;
 }
 
-bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt,
-                           uint32_t* estimatedRttVariance) {
-    (void)estimatedRtt;
-    (void)estimatedRttVariance;
-    return false;
-}
-
 bool LiGetCurrentHostDisplayHdrMode(void) {
     return hdrEnabled;
 }
