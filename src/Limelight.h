@@ -858,12 +858,6 @@ uint64_t LiGetMicroseconds(void);
 // It should only ever be compared with the return value from a previous call to itself.
 uint64_t LiGetMillis(void);
 
-// This is a simplistic STUN function that can assist clients in getting the WAN address
-// for machines they find using mDNS over IPv4. This can be used to pre-populate the external
-// address for streaming after GFE stopped sending it a while back. wanAddr is returned in
-// network byte order.
-int LiFindExternalAddressIP4(const char* stunServer, unsigned short stunPort, unsigned int* wanAddr);
-
 // Returns the number of queued video frames ready for delivery. Only relevant
 // if CAPABILITY_DIRECT_SUBMIT is not set for the video renderer.
 int LiGetPendingVideoFrames(void);
@@ -969,48 +963,6 @@ void LiNotifyStationConnectCursorChunk(const unsigned char* data,
 void LiNotifyStationConnectCursorPosition(const unsigned char* data,
                                           unsigned int length);
 void LiNotifyStationConnectHostTermination(uint32_t errorCode);
-
-// Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
-#define ML_PORT_INDEX_TCP_47989 0
-#define ML_PORT_INDEX_UDP_47989 8
-
-// Port flags for use with LiTestClientConnectivity()
-#define ML_PORT_FLAG_ALL       0xFFFFFFFF
-#define ML_PORT_FLAG_TCP_47989 0x0001
-#define ML_PORT_FLAG_UDP_47989 0x0100
-
-// Returns the port flags that correspond to ports involved in a failing connection stage, or
-// connection termination error.
-//
-// These may be used to specifically test the ports that could have caused the connection failure.
-// If no ports are likely involved with a given failure, this function returns 0.
-unsigned int LiGetPortFlagsFromStage(int stage);
-unsigned int LiGetPortFlagsFromTerminationErrorCode(int errorCode);
-
-// Returns the IPPROTO_* value for the specified port index
-int LiGetProtocolFromPortFlagIndex(int portFlagIndex);
-
-// Returns the port number for the specified port index
-unsigned short LiGetPortFromPortFlagIndex(int portFlagIndex);
-
-// Populates the output buffer with a stringified list of the port flags set in the input argument.
-// The second and subsequent entries will be prepended by 'separator' (if provided).
-// If the output buffer is too small, the output will be truncated to fit the provided buffer.
-void LiStringifyPortFlags(unsigned int portFlags, const char* separator, char* outputBuffer, int outputBufferLength);
-
-// This function may be used to test if the local network is blocking Moonlight's ports. It requires
-// a test server running on an Internet-reachable host. To perform a test, pass in the DNS hostname
-// of the test server, a reference TCP port to ensure the test host is reachable at all (something
-// very unlikely to blocked, like 80 or 443), and a set of ML_PORT_FLAG_* values corresponding to
-// the ports you'd like to test. On return, it returns ML_TEST_RESULT_INCONCLUSIVE on catastrophic error,
-// or the set of port flags that failed to validate. If all ports validate successfully, it returns 0.
-//
-// It's encouraged to not use the port flags explicitly (because GameStream ports may change in the future),
-// but to instead use ML_PORT_FLAG_ALL or LiGetPortFlagsFromStage() on connection failure.
-//
-// The test server is available at https://github.com/cgutman/gfe-loopback
-#define ML_TEST_RESULT_INCONCLUSIVE 0xFFFFFFFF
-unsigned int LiTestClientConnectivity(const char* testServer, unsigned short referencePort, unsigned int testPortFlags);
 
 // This family of functions can be used for pull-based video renderers that opt to manage a decoding/rendering
 // thread themselves. After successfully calling the WaitFor/Poll variants that dequeue the video frame, you
