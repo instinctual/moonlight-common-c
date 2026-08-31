@@ -555,6 +555,24 @@ typedef struct _SERVER_INFORMATION {
     int serverCodecModeSupport;
 } SERVER_INFORMATION, *PSERVER_INFORMATION;
 
+/*
+ * Exact stream values accepted by the StationConnect native QUIC setup
+ * exchange. Supplying this immediately before LiStartConnection() bypasses
+ * the legacy TCP RTSP handshake. The configuration is consumed once and is
+ * never a fallback: malformed or incomplete values fail the connection.
+ */
+typedef struct _STATIONCONNECT_NATIVE_SESSION_CONFIGURATION {
+    uint32_t structSize;
+    uint32_t negotiatedVideoFormat;
+    uint32_t audioPacketDurationMs;
+    uint32_t reserved;
+    OPUS_MULTISTREAM_CONFIGURATION opusConfiguration;
+} STATIONCONNECT_NATIVE_SESSION_CONFIGURATION,
+  *PSTATIONCONNECT_NATIVE_SESSION_CONFIGURATION;
+
+int LiSetStationConnectNativeSessionConfiguration(
+    const STATIONCONNECT_NATIVE_SESSION_CONFIGURATION* configuration);
+
 // Use this function to zero the server information when allocated on the stack or heap
 void LiInitializeServerInformation(PSERVER_INFORMATION serverInfo);
 

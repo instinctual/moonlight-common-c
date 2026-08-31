@@ -5,6 +5,8 @@ static ConnListenerConnectionTerminated originalTerminationCallback;
 static bool alreadyTerminated;
 static PLT_THREAD terminationCallbackThread;
 static int terminationCallbackErrorCode;
+static bool NativeSessionConfigurationPending;
+static STATIONCONNECT_NATIVE_SESSION_CONFIGURATION NativeSessionConfiguration;
 
 // Common globals
 char* RemoteAddrString;
@@ -39,7 +41,7 @@ static const char* stageNames[STAGE_MAX] = {
     "platform initialization",
     "name resolution",
     "audio stream initialization",
-    "RTSP handshake",
+    "session negotiation",
     "control stream initialization",
     "video stream initialization",
     "input stream initialization",
@@ -52,6 +54,30 @@ static const char* stageNames[STAGE_MAX] = {
 // Get the name of the current stage based on its number
 const char* LiGetStageName(int stage) {
     return stageNames[stage];
+}
+
+int LiSetStationConnectNativeSessionConfiguration(
+    const STATIONCONNECT_NATIVE_SESSION_CONFIGURATION* configuration) {
+    if (configuration == NULL ||
+            configuration->structSize != sizeof(*configuration) ||
+            configuration->reserved != 0 ||
+            configuration->negotiatedVideoFormat == 0 ||
+            configuration->audioPacketDurationMs == 0 ||
+            configuration->audioPacketDurationMs > 120 ||
+            configuration->opusConfiguration.sampleRate != 48000 ||
+            configuration->opusConfiguration.channelCount == 0 ||
+            configuration->opusConfiguration.channelCount >
+                AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT ||
+            configuration->opusConfiguration.streams == 0 ||
+            configuration->opusConfiguration.streams >
+                configuration->opusConfiguration.channelCount ||
+            configuration->opusConfiguration.coupledStreams >
+                configuration->opusConfiguration.streams) {
+        return -1;
+    }
+    NativeSessionConfiguration = *configuration;
+    NativeSessionConfigurationPending = true;
+    return 0;
 }
 
 // Interrupt a pending connection attempt. This interruption happens asynchronously
@@ -206,6 +232,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDERER_CALLBACKS arCallbacks, void* renderContext, int drFlags,
     void* audioContext, int arFlags) {
     int err;
+    const bool nativeSessionNegotiated = NativeSessionConfigurationPending;
 
     if (drCallbacks != NULL && (drCallbacks->capabilities & CAPABILITY_PULL_RENDERER) && drCallbacks->submitDecodeUnit) {
         Limelog("CAPABILITY_PULL_RENDERER cannot be set with a submitDecodeUnit callback\n");
@@ -255,7 +282,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ListenerCallbacks.connectionTerminated = ClInternalConnectionTerminated;
 
     memset(&LocalAddr, 0, sizeof(LocalAddr));
-    NegotiatedVideoFormat = 0;
+    NegotiatedVideoFormat = nativeSessionNegotiated ?
+        (int)NativeSessionConfiguration.negotiatedVideoFormat : 0;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     RemoteAddrString = strdup(serverInfo->address);
 
@@ -265,7 +293,11 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     AudioPortNumber = 0;
 
     // Parse RTSP port number from RTSP session URL
-    if (!parseRtspPortNumberFromUrl(serverInfo->rtspSessionUrl, &RtspPortNumber)) {
+    if (nativeSessionNegotiated) {
+        RtspPortNumber = 47989;
+        Limelog("Native QUIC session negotiation is complete\n");
+    }
+    else if (!parseRtspPortNumberFromUrl(serverInfo->rtspSessionUrl, &RtspPortNumber)) {
         // Use the well known port if parsing fails
         RtspPortNumber = 48010;
 
@@ -432,9 +464,17 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_INIT);
     Limelog("done\n");
 
-    Limelog("Starting RTSP handshake...");
+    if (nativeSessionNegotiated) {
+        HighQualitySurroundSupported = false;
+        HighQualitySurroundEnabled = false;
+        NormalQualityOpusConfig = NativeSessionConfiguration.opusConfiguration;
+        memset(&HighQualityOpusConfig, 0, sizeof(HighQualityOpusConfig));
+        AudioPacketDuration = (int)NativeSessionConfiguration.audioPacketDurationMs;
+    }
+
+    Limelog("Starting session negotiation...");
     ListenerCallbacks.stageStarting(STAGE_RTSP_HANDSHAKE);
-    err = performRtspHandshake(serverInfo);
+    err = nativeSessionNegotiated ? 0 : performRtspHandshake(serverInfo);
     if (err != 0) {
         Limelog("failed: %d\n", err);
         ListenerCallbacks.stageFailed(STAGE_RTSP_HANDSHAKE, err);
@@ -535,6 +575,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ListenerCallbacks.connectionStarted();
 
 Cleanup:
+    NativeSessionConfigurationPending = false;
+    memset(&NativeSessionConfiguration, 0, sizeof(NativeSessionConfiguration));
     if (err != 0) {
         // Undo any work we've done here before failing
         LiStopConnection();
