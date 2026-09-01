@@ -1,12 +1,12 @@
 #include "Limelight-internal.h"
 
-#include "stationconnect_datasmash_input.h"
+#include "plank_transport_input.h"
 
 static bool initialized;
 static bool needsBatchedScroll;
 static int batchedScrollDelta;
 
-static StationConnectNativeInputSender nativeInputSender;
+static PlankNativeInputSender nativeInputSender;
 static void* nativeInputSenderContext;
 
 static LINKED_BLOCKING_QUEUE packetQueue;
@@ -191,7 +191,7 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
 
     if (nativeInputSender != NULL) {
         uint32_t magic = LE32(holder->packet.header.magic);
-        uint8_t payload[SC_DATASMASH_INPUT_PEN_SIZE];
+        uint8_t payload[PLANK_TRANSPORT_INPUT_PEN_SIZE];
         const uint8_t* variablePayload = NULL;
         size_t payloadLength = 0;
         uint8_t type = 0;
@@ -199,9 +199,9 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
         (void)moreData;
         switch (magic) {
         case MOUSE_MOVE_ABS_MAGIC:
-            type = SC_DATASMASH_INPUT_ABSOLUTE_MOUSE;
-            payloadLength = SC_DATASMASH_INPUT_ABSOLUTE_MOUSE_SIZE;
-            sc_datasmash_input_encode_absolute_mouse(
+            type = PLANK_TRANSPORT_INPUT_ABSOLUTE_MOUSE;
+            payloadLength = PLANK_TRANSPORT_INPUT_ABSOLUTE_MOUSE_SIZE;
+            plank_transport_input_encode_absolute_mouse(
                 payload,
                 (uint16_t)BE16(holder->packet.mouseMoveAbs.x),
                 (uint16_t)BE16(holder->packet.mouseMoveAbs.y),
@@ -210,39 +210,39 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
             break;
         case MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5:
         case MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5:
-            type = SC_DATASMASH_INPUT_MOUSE_BUTTON;
-            payloadLength = SC_DATASMASH_INPUT_MOUSE_BUTTON_SIZE;
+            type = PLANK_TRANSPORT_INPUT_MOUSE_BUTTON;
+            payloadLength = PLANK_TRANSPORT_INPUT_MOUSE_BUTTON_SIZE;
             payload[0] = holder->packet.mouseButton.button;
             payload[1] = magic == MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5 ?
-                SC_DATASMASH_INPUT_ACTION_PRESS :
-                SC_DATASMASH_INPUT_ACTION_RELEASE;
+                PLANK_TRANSPORT_INPUT_ACTION_PRESS :
+                PLANK_TRANSPORT_INPUT_ACTION_RELEASE;
             break;
         case SCROLL_MAGIC_GEN5:
-            type = SC_DATASMASH_INPUT_VERTICAL_SCROLL;
-            payloadLength = SC_DATASMASH_INPUT_SCROLL_SIZE;
-            sc_datasmash_input_write_u16(
+            type = PLANK_TRANSPORT_INPUT_VERTICAL_SCROLL;
+            payloadLength = PLANK_TRANSPORT_INPUT_SCROLL_SIZE;
+            plank_transport_input_write_u16(
                 payload, (uint16_t)BE16(holder->packet.scroll.scrollAmt1));
             break;
         case SS_HSCROLL_MAGIC:
-            type = SC_DATASMASH_INPUT_HORIZONTAL_SCROLL;
-            payloadLength = SC_DATASMASH_INPUT_SCROLL_SIZE;
-            sc_datasmash_input_write_u16(
+            type = PLANK_TRANSPORT_INPUT_HORIZONTAL_SCROLL;
+            payloadLength = PLANK_TRANSPORT_INPUT_SCROLL_SIZE;
+            plank_transport_input_write_u16(
                 payload, (uint16_t)BE16(holder->packet.hscroll.scrollAmount));
             break;
         case KEY_DOWN_EVENT_MAGIC:
         case KEY_UP_EVENT_MAGIC:
-            type = SC_DATASMASH_INPUT_KEYBOARD;
-            payloadLength = SC_DATASMASH_INPUT_KEYBOARD_SIZE;
-            sc_datasmash_input_write_u16(
+            type = PLANK_TRANSPORT_INPUT_KEYBOARD;
+            payloadLength = PLANK_TRANSPORT_INPUT_KEYBOARD_SIZE;
+            plank_transport_input_write_u16(
                 payload, (uint16_t)LE16(holder->packet.keyboard.keyCode));
             payload[2] = magic == KEY_DOWN_EVENT_MAGIC ?
-                SC_DATASMASH_INPUT_ACTION_PRESS :
-                SC_DATASMASH_INPUT_ACTION_RELEASE;
+                PLANK_TRANSPORT_INPUT_ACTION_PRESS :
+                PLANK_TRANSPORT_INPUT_ACTION_RELEASE;
             payload[3] = (uint8_t)holder->packet.keyboard.modifiers;
             payload[4] = (uint8_t)holder->packet.keyboard.flags;
             break;
         case UTF8_TEXT_EVENT_MAGIC:
-            type = SC_DATASMASH_INPUT_UTF8_TEXT;
+            type = PLANK_TRANSPORT_INPUT_UTF8_TEXT;
             variablePayload = (const uint8_t*)holder->packet.unicode.text;
             payloadLength = PAYLOAD_SIZE(holder) - sizeof(uint32_t);
             break;
@@ -257,9 +257,9 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
             memcpy(&pressure, holder->packet.pen.pressureOrDistance, sizeof(pressure));
             memcpy(&contactAreaMajor, holder->packet.pen.contactAreaMajor, sizeof(contactAreaMajor));
             memcpy(&contactAreaMinor, holder->packet.pen.contactAreaMinor, sizeof(contactAreaMinor));
-            type = SC_DATASMASH_INPUT_PEN;
-            payloadLength = SC_DATASMASH_INPUT_PEN_SIZE;
-            sc_datasmash_input_encode_pen(
+            type = PLANK_TRANSPORT_INPUT_PEN;
+            payloadLength = PLANK_TRANSPORT_INPUT_PEN_SIZE;
+            plank_transport_input_encode_pen(
                 payload,
                 holder->packet.pen.eventType,
                 holder->packet.pen.toolType,
@@ -270,13 +270,13 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
             break;
         }
         case SS_RAW_HID_MAGIC:
-            type = SC_DATASMASH_INPUT_RAW_HID_WACOM;
+            type = PLANK_TRANSPORT_INPUT_RAW_HID_WACOM;
             variablePayload = holder->packet.rawHid.data;
             payloadLength = PACKET_SIZE(holder) - (sizeof(SS_RAW_HID_PACKET) - 1);
             break;
         case MOUSE_MOVE_REL_MAGIC_GEN5:
         case ENABLE_HAPTICS_MAGIC:
-            // StationConnect uses absolute mouse input and has no gamepad haptics.
+            // PLANK uses absolute mouse input and has no gamepad haptics.
             return true;
         default:
             Limelog("Rejected unsupported input type on native KyProto input: 0x%08x\n", magic);
@@ -296,13 +296,13 @@ static bool sendInputPacket(PPACKET_HOLDER holder, bool moreData) {
         return true;
     }
 
-    Limelog("StationConnect native input sender is not configured\n");
+    Limelog("PLANK native input sender is not configured\n");
     ListenerCallbacks.connectionTerminated(-1);
     return false;
 }
 
-void LiSetStationConnectNativeInputSender(
-        StationConnectNativeInputSender sender, void* context) {
+void LiSetPlankNativeInputSender(
+        PlankNativeInputSender sender, void* context) {
     nativeInputSender = sender;
     nativeInputSenderContext = context;
 }
@@ -595,7 +595,7 @@ int startInputStream(void) {
     int err;
 
     if (nativeInputSender == NULL) {
-        Limelog("StationConnect native input sender is required\n");
+        Limelog("PLANK native input sender is required\n");
         return -1;
     }
 
@@ -907,8 +907,8 @@ int LiSendRawHidEvent(const unsigned char* data, unsigned int length) {
     if (!(SunshineFeatureFlags & LI_FF_RAW_HID_TABLET) || nativeInputSender == NULL) {
         return -3;
     }
-    if (data == NULL || length < sizeof(SC_RAW_HID_WIRE_HEADER) ||
-            length > sizeof(SC_RAW_HID_WIRE_HEADER) + SC_RAW_HID_MAX_PAYLOAD_SIZE) {
+    if (data == NULL || length < sizeof(PLANK_RAW_HID_WIRE_HEADER) ||
+            length > sizeof(PLANK_RAW_HID_WIRE_HEADER) + PLANK_RAW_HID_MAX_PAYLOAD_SIZE) {
         return -4;
     }
 

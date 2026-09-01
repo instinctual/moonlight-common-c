@@ -6,7 +6,7 @@ static bool alreadyTerminated;
 static PLT_THREAD terminationCallbackThread;
 static int terminationCallbackErrorCode;
 static bool NativeSessionConfigurationPending;
-static STATIONCONNECT_NATIVE_SESSION_CONFIGURATION NativeSessionConfiguration;
+static PLANK_NATIVE_SESSION_CONFIGURATION NativeSessionConfiguration;
 
 // Common globals
 char* RemoteAddrString;
@@ -49,8 +49,8 @@ const char* LiGetStageName(int stage) {
     return stageNames[stage];
 }
 
-int LiSetStationConnectNativeSessionConfiguration(
-    const STATIONCONNECT_NATIVE_SESSION_CONFIGURATION* configuration) {
+int LiSetPlankNativeSessionConfiguration(
+    const PLANK_NATIVE_SESSION_CONFIGURATION* configuration) {
     if (configuration == NULL ||
             configuration->structSize != sizeof(*configuration) ||
             configuration->sessionPort == 0 ||
@@ -205,7 +205,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     uint16_t sessionPortNumber;
 
     if (!NativeSessionConfigurationPending) {
-        Limelog("StationConnect native session configuration is required\n");
+        Limelog("PLANK native session configuration is required\n");
         return -1;
     }
     sessionPortNumber = (uint16_t) NativeSessionConfiguration.sessionPort;

@@ -48,9 +48,9 @@ extern uint32_t SunshineFeatureFlags;
 
 #define IS_SUNSHINE() (AppVersionQuad[3] < 0)
 
-// Client feature flags negotiated by StationConnect native setup.
+// Client feature flags negotiated by PLANK native setup.
 #define ML_FF_IDENTITY_GBR_444 0x04 // Client requests full-range identity G,B,R plane mapping
-#define ML_FF_LOCAL_CURSOR SC_CURSOR_CLIENT_FEATURE_FLAG // Client presents host cursor shapes through its local compositor cursor
+#define ML_FF_LOCAL_CURSOR PLANK_CURSOR_CLIENT_FEATURE_FLAG // Client presents host cursor shapes through its local compositor cursor
 
 #define UDP_RECV_POLL_TIMEOUT_MS 100
 

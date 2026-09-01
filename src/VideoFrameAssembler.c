@@ -606,7 +606,7 @@ static void processAvcHevcKeyFrame(PBUFFER_DESC currentPos) {
     }
 }
 
-int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
+int LiSubmitPlankVideoFrame(const unsigned char* frame,
                                      int frameLength,
                                      uint32_t frameNumber,
                                      uint32_t flags,
@@ -616,12 +616,12 @@ int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
     bool keyFrame;
 
     if (frame == NULL || frameLength <= 0 ||
-            (flags & ~STATIONCONNECT_VIDEO_FRAME_FLAG_KEY) != 0 ||
+            (flags & ~PLANK_VIDEO_FRAME_FLAG_KEY) != 0 ||
             !(NegotiatedVideoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265))) {
         return -1;
     }
 
-    keyFrame = (flags & STATIONCONNECT_VIDEO_FRAME_FLAG_KEY) != 0;
+    keyFrame = (flags & PLANK_VIDEO_FRAME_FLAG_KEY) != 0;
 
     // The native receiver is the sole frame producer on this data plane. A
     // decoder refresh may still request a deferred state drop from the control

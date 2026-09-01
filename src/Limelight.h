@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "StationConnect.h"
+#include "plank.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -383,7 +383,7 @@ typedef void(*ConnListenerConnectionTerminated)(int errorCode);
 
 // This error is passed to ConnListenerConnectionTerminated() if no video data
 // was ever received for this connection after waiting several seconds. It likely
-// indicates a problem with traffic on the configured StationConnect UDP port
+// indicates a problem with traffic on the configured PLANK UDP port
 // due to missing or incorrect firewall rules.
 #define ML_ERROR_NO_VIDEO_TRAFFIC -100
 
@@ -445,19 +445,19 @@ typedef void(*ConnListenerSetMotionEventState)(uint16_t controllerNumber, uint8_
 // This callback is invoked to set a controller's RGB LED (if present).
 typedef void(*ConnListenerSetControllerLED)(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
 
-// This callback receives a versioned StationConnect raw HID control frame from
+// This callback receives a versioned PLANK raw HID control frame from
 // the host. The data is valid only for the duration of the callback.
 typedef void(*ConnListenerRawHidControl)(const unsigned char* data, unsigned int length);
 
-// This callback confirms the video bitrate target accepted by a StationConnect
+// This callback confirms the video bitrate target accepted by a PLANK
 // host and the effective encoder limits after host-side policy is applied.
 typedef void(*ConnListenerVideoBitrateApplied)(uint32_t requestedKbps, uint32_t appliedKbps, uint32_t peakKbps);
 
-// This callback receives one validated chunk of a StationConnect local cursor
+// This callback receives one validated chunk of a PLANK local cursor
 // image. The data is valid only for the duration of the callback.
 typedef void(*ConnListenerCursorChunk)(const unsigned char* data, unsigned int length);
 
-// This callback receives one validated StationConnect cursor-position frame.
+// This callback receives one validated PLANK cursor-position frame.
 // The data is valid only for the duration of the callback.
 typedef void(*ConnListenerCursorPosition)(const unsigned char* data, unsigned int length);
 
@@ -501,10 +501,10 @@ void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks)
 #define SCM_HEVC_REXT10_444 0x00100000 // Sunshine extension
 #define SCM_AV1_HIGH8_444   0x00200000 // Sunshine extension
 #define SCM_AV1_HIGH10_444  0x00400000 // Sunshine extension
-#define SCM_IDENTITY_GBR_444 0x00800000 // StationConnect identity G,B,R plane mapping
-#define SCM_H264_HIGH10_444 0x01000000 // StationConnect H.264 High 4:4:4 10-bit extension
-#define SCM_H264_HIGH8_422  0x02000000 // StationConnect H.264 High 4:2:2 8-bit extension
-#define SCM_H264_HIGH10_422 0x04000000 // StationConnect H.264 High 4:2:2 10-bit extension
+#define SCM_IDENTITY_GBR_444 0x00800000 // PLANK identity G,B,R plane mapping
+#define SCM_H264_HIGH10_444 0x01000000 // PLANK H.264 High 4:4:4 10-bit extension
+#define SCM_H264_HIGH8_422  0x02000000 // PLANK H.264 High 4:2:2 8-bit extension
+#define SCM_H264_HIGH10_422 0x04000000 // PLANK H.264 High 4:2:2 10-bit extension
 
 // SCM masks to identify various codec capabilities
 #define SCM_MASK_H264   (SCM_H264 | SCM_H264_HIGH8_422 | SCM_H264_HIGH8_444 | SCM_H264_HIGH10_422 | SCM_H264_HIGH10_444)
@@ -529,12 +529,12 @@ typedef struct _SERVER_INFORMATION {
 } SERVER_INFORMATION, *PSERVER_INFORMATION;
 
 /*
- * Exact stream values accepted by the StationConnect native QUIC setup
+ * Exact stream values accepted by the PLANK native QUIC setup
  * exchange. Supplying this immediately before LiStartConnection() is
  * mandatory. The configuration is consumed once; malformed or incomplete
  * values fail the connection.
  */
-typedef struct _STATIONCONNECT_NATIVE_SESSION_CONFIGURATION {
+typedef struct _PLANK_NATIVE_SESSION_CONFIGURATION {
     uint32_t structSize;
     uint32_t negotiatedVideoFormat;
     uint32_t hostFeatureFlags;
@@ -542,11 +542,11 @@ typedef struct _STATIONCONNECT_NATIVE_SESSION_CONFIGURATION {
     uint32_t referenceFrameInvalidationSupported;
     uint32_t sessionPort;
     OPUS_MULTISTREAM_CONFIGURATION opusConfiguration;
-} STATIONCONNECT_NATIVE_SESSION_CONFIGURATION,
-  *PSTATIONCONNECT_NATIVE_SESSION_CONFIGURATION;
+} PLANK_NATIVE_SESSION_CONFIGURATION,
+  *PPLANK_NATIVE_SESSION_CONFIGURATION;
 
-int LiSetStationConnectNativeSessionConfiguration(
-    const STATIONCONNECT_NATIVE_SESSION_CONFIGURATION* configuration);
+int LiSetPlankNativeSessionConfiguration(
+    const PLANK_NATIVE_SESSION_CONFIGURATION* configuration);
 
 // Use this function to zero the server information when allocated on the stack or heap
 void LiInitializeServerInformation(PSERVER_INFORMATION serverInfo);
@@ -906,8 +906,8 @@ const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 // decoder queue. This path bypasses GameStream RTP, AES, Reed-Solomon, and
 // depacketization. Returns 0 when queued, 1 when deliberately discarded while
 // waiting for a key frame, and a negative value for invalid input.
-#define STATIONCONNECT_VIDEO_FRAME_FLAG_KEY 0x00000001u
-int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
+#define PLANK_VIDEO_FRAME_FLAG_KEY 0x00000001u
+int LiSubmitPlankVideoFrame(const unsigned char* frame,
                                      int frameLength,
                                      uint32_t frameNumber,
                                      uint32_t flags,
@@ -915,54 +915,54 @@ int LiSubmitStationConnectVideoFrame(const unsigned char* frame,
                                      uint16_t hostProcessingLatency);
 
 // Submit a raw KyProto-reconstructed Opus packet to the configured audio
-// renderer from StationConnect's dedicated native receive thread. A non-zero
+// renderer from PLANK's dedicated native receive thread. A non-zero
 // missingSamples value invokes Opus packet-loss concealment for the
 // corresponding number of complete frames.
-int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
+int LiSubmitPlankAudioPacket(const unsigned char* packet,
                                       int packetLength,
                                       uint16_t frameSamples,
                                       uint32_t missingSamples);
 
-// Route StationConnect recovery and bitrate requests through a native reliable
+// Route PLANK recovery and bitrate requests through a native reliable
 // data plane without wrapping them in encrypted GameStream control packets.
 // The sender must copy the values before returning and returns zero on success.
-// The sender is required for every StationConnect session.
+// The sender is required for every PLANK session.
 #define LI_SC_NATIVE_CONTROL_REQUEST_IDR                 1u
 #define LI_SC_NATIVE_CONTROL_INVALIDATE_REFERENCE_FRAMES 2u
 #define LI_SC_NATIVE_CONTROL_SET_VIDEO_BITRATE           3u
-typedef int(*StationConnectNativeControlSender)(void* context,
+typedef int(*PlankNativeControlSender)(void* context,
                                                 uint32_t type,
                                                 uint32_t value1,
                                                 uint32_t value2);
-void LiSetStationConnectNativeControlSender(
-        StationConnectNativeControlSender sender, void* context);
+void LiSetPlankNativeControlSender(
+        PlankNativeControlSender sender, void* context);
 
-// Route StationConnect keyboard, absolute mouse, scrolling, pen, and raw-HID
+// Route PLANK keyboard, absolute mouse, scrolling, pen, and raw-HID
 // Wacom messages through Kyber's native reliable input protocol. The payload
-// is one complete stationconnect_datasmash_input.h message and must be copied
+// is one complete plank_transport_input.h message and must be copied
 // before the callback returns. The sender is required for every session.
-typedef int(*StationConnectNativeInputSender)(void* context,
+typedef int(*PlankNativeInputSender)(void* context,
                                               uint8_t type,
                                               const unsigned char* payload,
                                               size_t payloadLength);
-void LiSetStationConnectNativeInputSender(
-        StationConnectNativeInputSender sender, void* context);
+void LiSetPlankNativeInputSender(
+        PlankNativeInputSender sender, void* context);
 
 // Deliver native Host-to-Client control messages through the same callback
 // and termination paths used by the normal control receiver.
-void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
+void LiNotifyPlankVideoBitrateApplied(uint32_t requestedKbps,
                                                uint32_t appliedKbps,
                                                uint32_t peakKbps);
 struct _SS_HDR_METADATA;
-void LiNotifyStationConnectHdrMode(bool enabled,
+void LiNotifyPlankHdrMode(bool enabled,
                                    const struct _SS_HDR_METADATA* metadata);
-void LiNotifyStationConnectRawHidControl(const unsigned char* data,
+void LiNotifyPlankRawHidControl(const unsigned char* data,
                                          unsigned int length);
-void LiNotifyStationConnectCursorChunk(const unsigned char* data,
+void LiNotifyPlankCursorChunk(const unsigned char* data,
                                        unsigned int length);
-void LiNotifyStationConnectCursorPosition(const unsigned char* data,
+void LiNotifyPlankCursorPosition(const unsigned char* data,
                                           unsigned int length);
-void LiNotifyStationConnectHostTermination(uint32_t errorCode);
+void LiNotifyPlankHostTermination(uint32_t errorCode);
 
 // This family of functions can be used for pull-based video renderers that opt to manage a decoding/rendering
 // thread themselves. After successfully calling the WaitFor/Poll variants that dequeue the video frame, you
@@ -1019,11 +1019,11 @@ void LiRequestIdrFrame(void);
 // This function returns any extended feature flags supported by the host.
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
-#define LI_FF_RAW_HID_TABLET          0x04 // StationConnect encrypted raw HID tablet transport supported
-#define LI_FF_DYNAMIC_VIDEO_BITRATE   0x08 // StationConnect active-session video bitrate updates supported
-#define LI_FF_ENCODER_TARGET_ACK      0x10 // StationConnect exact startup target and applied-target acknowledgement supported
-#define LI_FF_RAW_HID_FOCUS_SUSPEND   0x20 // StationConnect preserves raw HID endpoints while client focus is suspended
-#define LI_FF_LOCAL_CURSOR             SC_CURSOR_HOST_FEATURE_FLAG // StationConnect host cursor shape/hotspot transport supported
+#define LI_FF_RAW_HID_TABLET          0x04 // PLANK encrypted raw HID tablet transport supported
+#define LI_FF_DYNAMIC_VIDEO_BITRATE   0x08 // PLANK active-session video bitrate updates supported
+#define LI_FF_ENCODER_TARGET_ACK      0x10 // PLANK exact startup target and applied-target acknowledgement supported
+#define LI_FF_RAW_HID_FOCUS_SUSPEND   0x20 // PLANK preserves raw HID endpoints while client focus is suspended
+#define LI_FF_LOCAL_CURSOR             PLANK_CURSOR_HOST_FEATURE_FLAG // PLANK host cursor shape/hotspot transport supported
 uint32_t LiGetHostFeatureFlags(void);
 
 // Requests a new video encoder bitrate for the active stream. The host applies
@@ -1031,7 +1031,7 @@ uint32_t LiGetHostFeatureFlags(void);
 // the host does not advertise LI_FF_DYNAMIC_VIDEO_BITRATE or the request fails.
 int LiSetVideoBitrate(int bitrateKbps);
 
-// Sends one complete SC_RAW_HID_WIRE_HEADER frame and payload to a compatible
+// Sends one complete PLANK_RAW_HID_WIRE_HEADER frame and payload to a compatible
 // Sunshine host over the reliable encrypted control stream.
 int LiSendRawHidEvent(const unsigned char* data, unsigned int length);
 

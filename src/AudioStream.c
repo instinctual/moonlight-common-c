@@ -10,7 +10,7 @@ int initializeAudioStream(void) {
 void destroyAudioStream(void) {
 }
 
-int LiSubmitStationConnectAudioPacket(const unsigned char* packet,
+int LiSubmitPlankAudioPacket(const unsigned char* packet,
                                       int packetLength,
                                       uint16_t frameSamples,
                                       uint32_t missingSamples) {

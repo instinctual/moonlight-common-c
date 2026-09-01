@@ -25,21 +25,21 @@ if (BUILD_SHARED_LIBS_OVERRIDE)
   unset(BUILD_SHARED_LIBS_OVERRIDE)
 endif()
 
-set(STATIONCONNECT_DATASMASH_TRANSPORT_DIR "" CACHE PATH
-    "Path to the StationConnect Datasmash transport source")
-if (NOT STATIONCONNECT_DATASMASH_TRANSPORT_DIR)
-  get_filename_component(STATIONCONNECT_DATASMASH_TRANSPORT_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../protocol/datasmash-transport"
+set(PLANK_TRANSPORT_DIR "" CACHE PATH
+    "Path to the PLANK transport transport source")
+if (NOT PLANK_TRANSPORT_DIR)
+  get_filename_component(PLANK_TRANSPORT_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../../protocol/plank-transport"
     ABSOLUTE)
 endif()
 if (NOT EXISTS
-    "${STATIONCONNECT_DATASMASH_TRANSPORT_DIR}/include/stationconnect_datasmash_input.h")
+    "${PLANK_TRANSPORT_DIR}/include/plank_transport_input.h")
   message(FATAL_ERROR
-    "StationConnect Datasmash input header not found under "
-    "${STATIONCONNECT_DATASMASH_TRANSPORT_DIR}")
+    "PLANK transport input header not found under "
+    "${PLANK_TRANSPORT_DIR}")
 endif()
 target_include_directories(moonlight-common-c PRIVATE
-  "${STATIONCONNECT_DATASMASH_TRANSPORT_DIR}/include")
+  "${PLANK_TRANSPORT_DIR}/include")
 
 if(MSVC)
   target_compile_options(moonlight-common-c PRIVATE /W3 /wd4100 /wd4232 /wd5105 /WX)

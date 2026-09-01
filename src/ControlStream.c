@@ -6,16 +6,16 @@ typedef struct _QUEUED_REFERENCE_FRAME_CONTROL {
     LINKED_BLOCKING_QUEUE_ENTRY entry;
 } QUEUED_REFERENCE_FRAME_CONTROL, *PQUEUED_REFERENCE_FRAME_CONTROL;
 
-typedef enum _STATIONCONNECT_CALLBACK_TYPE {
+typedef enum _PLANK_CALLBACK_TYPE {
     SC_CALLBACK_HDR_MODE,
     SC_CALLBACK_RAW_HID_CONTROL,
     SC_CALLBACK_VIDEO_BITRATE_APPLIED,
     SC_CALLBACK_CURSOR_SHAPE,
     SC_CALLBACK_CURSOR_POSITION,
-} STATIONCONNECT_CALLBACK_TYPE;
+} PLANK_CALLBACK_TYPE;
 
 typedef struct _QUEUED_ASYNC_CALLBACK {
-    STATIONCONNECT_CALLBACK_TYPE type;
+    PLANK_CALLBACK_TYPE type;
     unsigned char* variableData;
     unsigned int variableLength;
     union {
@@ -36,7 +36,7 @@ static LINKED_BLOCKING_QUEUE referenceFrameControlQueue;
 static LINKED_BLOCKING_QUEUE asyncCallbackQueue;
 static PLT_EVENT idrFrameRequiredEvent;
 
-static StationConnectNativeControlSender nativeControlSender;
+static PlankNativeControlSender nativeControlSender;
 static void* nativeControlSenderContext;
 static bool stopping = true;
 static bool initialized;
@@ -72,7 +72,7 @@ static void freeAsyncCallbackList(PLINKED_BLOCKING_QUEUE_ENTRY entry) {
 
 int initializeControlStream(void) {
     if (nativeControlSender == NULL) {
-        Limelog("StationConnect native control sender is required\n");
+        Limelog("PLANK native control sender is required\n");
         return -1;
     }
 
@@ -323,7 +323,7 @@ int startControlStream(void) {
     int err;
 
     if (!initialized || nativeControlSender == NULL) {
-        Limelog("StationConnect native control sender is required\n");
+        Limelog("PLANK native control sender is required\n");
         return -1;
     }
 
@@ -414,7 +414,7 @@ static bool queueAsyncCallback(PQUEUED_ASYNC_CALLBACK queuedCb) {
     return false;
 }
 
-static void queueNativeVariableCallback(STATIONCONNECT_CALLBACK_TYPE type,
+static void queueNativeVariableCallback(PLANK_CALLBACK_TYPE type,
                                         const unsigned char* data,
                                         unsigned int length) {
     PQUEUED_ASYNC_CALLBACK queuedCb;
@@ -437,7 +437,7 @@ static void queueNativeVariableCallback(STATIONCONNECT_CALLBACK_TYPE type,
     queueAsyncCallback(queuedCb);
 }
 
-void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
+void LiNotifyPlankVideoBitrateApplied(uint32_t requestedKbps,
                                                uint32_t appliedKbps,
                                                uint32_t peakKbps) {
     PQUEUED_ASYNC_CALLBACK queuedCb;
@@ -457,7 +457,7 @@ void LiNotifyStationConnectVideoBitrateApplied(uint32_t requestedKbps,
     queueAsyncCallback(queuedCb);
 }
 
-void LiNotifyStationConnectHdrMode(bool enabled,
+void LiNotifyPlankHdrMode(bool enabled,
                                    const SS_HDR_METADATA* metadata) {
     PQUEUED_ASYNC_CALLBACK queuedCb;
 
@@ -475,35 +475,35 @@ void LiNotifyStationConnectHdrMode(bool enabled,
     queueAsyncCallback(queuedCb);
 }
 
-void LiNotifyStationConnectRawHidControl(const unsigned char* data,
+void LiNotifyPlankRawHidControl(const unsigned char* data,
                                          unsigned int length) {
-    if (length < sizeof(SC_RAW_HID_WIRE_HEADER) ||
-            length > sizeof(SC_RAW_HID_WIRE_HEADER) +
-                         SC_RAW_HID_MAX_PAYLOAD_SIZE) {
+    if (length < sizeof(PLANK_RAW_HID_WIRE_HEADER) ||
+            length > sizeof(PLANK_RAW_HID_WIRE_HEADER) +
+                         PLANK_RAW_HID_MAX_PAYLOAD_SIZE) {
         return;
     }
     queueNativeVariableCallback(SC_CALLBACK_RAW_HID_CONTROL, data, length);
 }
 
-void LiNotifyStationConnectCursorChunk(const unsigned char* data,
+void LiNotifyPlankCursorChunk(const unsigned char* data,
                                        unsigned int length) {
-    if (length < sizeof(SC_CURSOR_WIRE_HEADER) ||
-            length > sizeof(SC_CURSOR_WIRE_HEADER) +
-                         SC_CURSOR_MAX_CHUNK_SIZE) {
+    if (length < sizeof(PLANK_CURSOR_WIRE_HEADER) ||
+            length > sizeof(PLANK_CURSOR_WIRE_HEADER) +
+                         PLANK_CURSOR_MAX_CHUNK_SIZE) {
         return;
     }
     queueNativeVariableCallback(SC_CALLBACK_CURSOR_SHAPE, data, length);
 }
 
-void LiNotifyStationConnectCursorPosition(const unsigned char* data,
+void LiNotifyPlankCursorPosition(const unsigned char* data,
                                           unsigned int length) {
-    if (length != sizeof(SC_CURSOR_POSITION_WIRE_MESSAGE)) {
+    if (length != sizeof(PLANK_CURSOR_POSITION_WIRE_MESSAGE)) {
         return;
     }
     queueNativeVariableCallback(SC_CALLBACK_CURSOR_POSITION, data, length);
 }
 
-void LiNotifyStationConnectHostTermination(uint32_t errorCode) {
+void LiNotifyPlankHostTermination(uint32_t errorCode) {
     if (!initialized || stopping) {
         return;
     }
@@ -527,8 +527,8 @@ void LiNotifyStationConnectHostTermination(uint32_t errorCode) {
     ListenerCallbacks.connectionTerminated((int)errorCode);
 }
 
-void LiSetStationConnectNativeControlSender(
-        StationConnectNativeControlSender sender, void* context) {
+void LiSetPlankNativeControlSender(
+        PlankNativeControlSender sender, void* context) {
     nativeControlSender = sender;
     nativeControlSenderContext = context;
 }
