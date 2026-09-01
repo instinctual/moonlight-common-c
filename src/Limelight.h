@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "StationConnect.h"
+#include "plank.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -519,10 +519,10 @@ void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks)
 #define SCM_HEVC_REXT10_444 0x00100000 // Sunshine extension
 #define SCM_AV1_HIGH8_444   0x00200000 // Sunshine extension
 #define SCM_AV1_HIGH10_444  0x00400000 // Sunshine extension
-#define SCM_IDENTITY_GBR_444 0x00800000 // StationConnect identity G,B,R plane mapping
-#define SCM_H264_HIGH10_444 0x01000000 // StationConnect H.264 High 4:4:4 10-bit extension
-#define SCM_H264_HIGH8_422  0x02000000 // StationConnect H.264 High 4:2:2 8-bit extension
-#define SCM_H264_HIGH10_422 0x04000000 // StationConnect H.264 High 4:2:2 10-bit extension
+#define SCM_IDENTITY_GBR_444 0x00800000 // Plank identity G,B,R plane mapping
+#define SCM_H264_HIGH10_444 0x01000000 // Plank H.264 High 4:4:4 10-bit extension
+#define SCM_H264_HIGH8_422  0x02000000 // Plank H.264 High 4:2:2 8-bit extension
+#define SCM_H264_HIGH10_422 0x04000000 // Plank H.264 High 4:2:2 10-bit extension
 
 // SCM masks to identify various codec capabilities
 #define SCM_MASK_H264   (SCM_H264 | SCM_H264_HIGH8_422 | SCM_H264_HIGH8_444 | SCM_H264_HIGH10_422 | SCM_H264_HIGH10_444)
@@ -963,9 +963,9 @@ void LiRequestIdrFrame(void);
 // This function returns any extended feature flags supported by the host.
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
-#define LI_FF_RAW_HID_TABLET          0x04 // StationConnect encrypted raw HID tablet transport supported
-#define LI_FF_RAW_HID_FOCUS_SUSPEND   0x20 // StationConnect preserves raw HID endpoints while client focus is suspended
-#define LI_FF_LOCAL_CURSOR             SC_CURSOR_HOST_FEATURE_FLAG // StationConnect host cursor shape/hotspot transport supported
+#define LI_FF_RAW_HID_TABLET          0x04 // Plank encrypted raw HID tablet transport supported
+#define LI_FF_RAW_HID_FOCUS_SUSPEND   0x20 // Plank preserves raw HID endpoints while client focus is suspended
+#define LI_FF_LOCAL_CURSOR             PLANK_CURSOR_HOST_FEATURE_FLAG // Plank host cursor shape/hotspot transport supported
 uint32_t LiGetHostFeatureFlags(void);
 
 #ifdef __cplusplus
