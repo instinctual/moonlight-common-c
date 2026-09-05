@@ -13,22 +13,24 @@ void destroyAudioStream(void) {
 int LiSubmitPlankAudioPacket(const unsigned char* packet,
                                       int packetLength,
                                       uint16_t frameSamples,
-                                      uint32_t missingSamples) {
+                                      uint32_t missingSamples,
+                                      uint64_t sourcePtsUs) {
     if (frameSamples == 0 || packetLength < 0 ||
             (packetLength != 0 && packet == NULL) ||
-            (missingSamples != 0 && packetLength != 0)) {
+            (missingSamples != 0 && packetLength != 0) ||
+            (missingSamples == 0 && sourcePtsUs >= (UINT64_C(1) << 61))) {
         return -1;
     }
 
     if (missingSamples != 0) {
         uint32_t missingFrames =
-            (missingSamples + frameSamples - 1) / frameSamples;
+            missingSamples / frameSamples + (missingSamples % frameSamples != 0);
         while (missingFrames-- != 0) {
-            AudioCallbacks.decodeAndPlaySample(NULL, 0);
+            AudioCallbacks.decodeAndPlaySample(NULL, 0, PLANK_AUDIO_PTS_UNKNOWN);
         }
     }
     else {
-        AudioCallbacks.decodeAndPlaySample((char*)packet, packetLength);
+        AudioCallbacks.decodeAndPlaySample((char*)packet, packetLength, sourcePtsUs);
     }
 
     return 0;

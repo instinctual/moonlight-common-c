@@ -18,7 +18,7 @@ static int fakeArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION op
 static void fakeArStart(void) {}
 static void fakeArStop(void) {}
 static void fakeArCleanup(void) {}
-static void fakeArDecodeAndPlaySample(char* sampleData, int sampleLength) {}
+static void fakeArDecodeAndPlaySample(char* sampleData, int sampleLength, uint64_t sourcePtsUs) {}
 
 AUDIO_RENDERER_CALLBACKS fakeArCallbacks = {
     .init = fakeArInit,

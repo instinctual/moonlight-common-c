@@ -323,7 +323,10 @@ typedef void(*AudioRendererStop)(void);
 typedef void(*AudioRendererCleanup)(void);
 
 // This callback provides Opus audio data to be decoded and played. sampleLength is in bytes.
-typedef void(*AudioRendererDecodeAndPlaySample)(char* sampleData, int sampleLength);
+// sourcePtsUs is the Host's native monotonic capture-observation time. Loss
+// concealment has no source timestamp and uses PLANK_AUDIO_PTS_UNKNOWN.
+#define PLANK_AUDIO_PTS_UNKNOWN UINT64_MAX
+typedef void(*AudioRendererDecodeAndPlaySample)(char* sampleData, int sampleLength, uint64_t sourcePtsUs);
 
 typedef struct _AUDIO_RENDERER_CALLBACKS {
     AudioRendererInit init;
@@ -911,7 +914,7 @@ int LiSubmitPlankVideoFrame(const unsigned char* frame,
                                      int frameLength,
                                      uint32_t frameNumber,
                                      uint32_t flags,
-                                     uint64_t pts90Khz,
+                                     uint64_t presentationTimeUs,
                                      uint16_t hostProcessingLatency);
 
 // Submit a raw KyProto-reconstructed Opus packet to the configured audio
@@ -921,7 +924,8 @@ int LiSubmitPlankVideoFrame(const unsigned char* frame,
 int LiSubmitPlankAudioPacket(const unsigned char* packet,
                                       int packetLength,
                                       uint16_t frameSamples,
-                                      uint32_t missingSamples);
+                                      uint32_t missingSamples,
+                                      uint64_t sourcePtsUs);
 
 // Route PLANK recovery and bitrate requests through a native reliable
 // data plane without wrapping them in encrypted GameStream control packets.

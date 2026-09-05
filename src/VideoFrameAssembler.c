@@ -610,12 +610,12 @@ int LiSubmitPlankVideoFrame(const unsigned char* frame,
                                      int frameLength,
                                      uint32_t frameNumber,
                                      uint32_t flags,
-                                     uint64_t pts90Khz,
+                                     uint64_t presentationTimeUs,
                                      uint16_t hostProcessingLatency) {
     BUFFER_DESC currentPos;
     bool keyFrame;
 
-    if (frame == NULL || frameLength <= 0 ||
+    if (frame == NULL || frameLength <= 0 || presentationTimeUs >= (UINT64_C(1) << 61) ||
             (flags & ~PLANK_VIDEO_FRAME_FLAG_KEY) != 0 ||
             !(NegotiatedVideoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265))) {
         return -1;
@@ -652,8 +652,10 @@ int LiSubmitPlankVideoFrame(const unsigned char* frame,
     frameType = keyFrame ? FRAME_TYPE_IDR : FRAME_TYPE_PFRAME;
     frameHostProcessingLatency = hostProcessingLatency;
     frameReceiveTimeUs = PltGetMicroseconds();
-    framePresentationTimeUs = (pts90Khz * 1000000ULL) / 90000ULL;
-    frameTimestamp90Khz = (uint32_t)pts90Khz;
+    framePresentationTimeUs = presentationTimeUs;
+    // Retained decoder metadata only; native transport no longer uses RTP units.
+    frameTimestamp90Khz = (uint32_t)((presentationTimeUs / 100) * 9 +
+                                   (presentationTimeUs % 100) * 9 / 100);
 
     currentPos.data = (char*)frame;
     currentPos.offset = 0;
