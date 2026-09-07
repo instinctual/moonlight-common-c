@@ -534,8 +534,16 @@ typedef struct _SERVER_INFORMATION {
  * mandatory. The configuration is consumed once; malformed or incomplete
  * values fail the connection.
  */
+#define PLANK_NATIVE_SERVICE_AUDIO 0x01u
+#define PLANK_NATIVE_SERVICE_INPUT 0x02u
+#define PLANK_NATIVE_SERVICE_LOCAL_CURSOR 0x04u
+#define PLANK_NATIVE_SERVICE_MASK 0x07u
+
 typedef struct _PLANK_NATIVE_SESSION_CONFIGURATION {
     uint32_t structSize;
+    // Explicit services, not decoder callbacks or inferred platform defaults.
+    // Zero is video/control only with the cursor embedded in captured pixels.
+    uint32_t serviceFlags;
     uint32_t negotiatedVideoFormat;
     uint32_t hostFeatureFlags;
     uint32_t audioPacketDurationMs;

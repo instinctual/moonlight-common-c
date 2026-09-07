@@ -7,6 +7,7 @@ static PLT_THREAD terminationCallbackThread;
 static int terminationCallbackErrorCode;
 static bool NativeSessionConfigurationPending;
 static PLANK_NATIVE_SESSION_CONFIGURATION NativeSessionConfiguration;
+static uint32_t ActiveServiceFlags;
 
 // Common globals
 char* RemoteAddrString;
@@ -51,24 +52,53 @@ const char* LiGetStageName(int stage) {
 
 int LiSetPlankNativeSessionConfiguration(
     const PLANK_NATIVE_SESSION_CONFIGURATION* configuration) {
+    if (stage != STAGE_NONE) {
+        return -1;
+    }
+    // A rejected replacement must not leave an older launch consumable.
+    NativeSessionConfigurationPending = false;
+    memset(&NativeSessionConfiguration, 0, sizeof(NativeSessionConfiguration));
     if (configuration == NULL ||
             configuration->structSize != sizeof(*configuration) ||
             configuration->sessionPort == 0 ||
             configuration->sessionPort > UINT16_MAX ||
             configuration->negotiatedVideoFormat == 0 ||
-            configuration->hostFeatureFlags == 0 ||
-            configuration->referenceFrameInvalidationSupported > 1 ||
-            configuration->audioPacketDurationMs == 0 ||
+            (configuration->serviceFlags & ~PLANK_NATIVE_SERVICE_MASK) != 0 ||
+            ((configuration->serviceFlags & PLANK_NATIVE_SERVICE_LOCAL_CURSOR) != 0) !=
+                ((configuration->hostFeatureFlags & LI_FF_LOCAL_CURSOR) != 0) ||
+            configuration->referenceFrameInvalidationSupported > 1) {
+        return -1;
+    }
+    if (configuration->serviceFlags & PLANK_NATIVE_SERVICE_AUDIO) {
+        if (configuration->audioPacketDurationMs == 0 ||
             configuration->audioPacketDurationMs > 120 ||
             configuration->opusConfiguration.sampleRate != 48000 ||
-            configuration->opusConfiguration.channelCount == 0 ||
+            configuration->opusConfiguration.channelCount <= 0 ||
             configuration->opusConfiguration.channelCount >
                 AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT ||
-            configuration->opusConfiguration.streams == 0 ||
+            configuration->opusConfiguration.streams <= 0 ||
             configuration->opusConfiguration.streams >
                 configuration->opusConfiguration.channelCount ||
+            configuration->opusConfiguration.coupledStreams < 0 ||
             configuration->opusConfiguration.coupledStreams >
-                configuration->opusConfiguration.streams) {
+                configuration->opusConfiguration.streams ||
+            configuration->opusConfiguration.streams +
+                configuration->opusConfiguration.coupledStreams !=
+                configuration->opusConfiguration.channelCount) {
+            return -1;
+        }
+        for (int i = 0; i < configuration->opusConfiguration.channelCount; i++) {
+            if (configuration->opusConfiguration.mapping[i] >=
+                    configuration->opusConfiguration.channelCount) {
+                return -1;
+            }
+        }
+    }
+    else if (configuration->audioPacketDurationMs != 0 ||
+             configuration->opusConfiguration.sampleRate != 0 ||
+             configuration->opusConfiguration.channelCount != 0 ||
+             configuration->opusConfiguration.streams != 0 ||
+             configuration->opusConfiguration.coupledStreams != 0) {
         return -1;
     }
     NativeSessionConfiguration = *configuration;
@@ -93,13 +123,13 @@ void LiStopConnection(void) {
 
     if (stage == STAGE_INPUT_STREAM_START) {
         Limelog("Stopping input stream...");
-        stopInputStream();
+        if (ActiveServiceFlags & PLANK_NATIVE_SERVICE_INPUT) stopInputStream();
         stage--;
         Limelog("done\n");
     }
     if (stage == STAGE_AUDIO_STREAM_START) {
         Limelog("Stopping audio stream...");
-        stopAudioStream();
+        if (ActiveServiceFlags & PLANK_NATIVE_SERVICE_AUDIO) stopAudioStream();
         stage--;
         Limelog("done\n");
     }
@@ -117,7 +147,7 @@ void LiStopConnection(void) {
     }
     if (stage == STAGE_INPUT_STREAM_INIT) {
         Limelog("Cleaning up input stream...");
-        destroyInputStream();
+        if (ActiveServiceFlags & PLANK_NATIVE_SERVICE_INPUT) destroyInputStream();
         stage--;
         Limelog("done\n");
     }
@@ -139,7 +169,7 @@ void LiStopConnection(void) {
     }
     if (stage == STAGE_AUDIO_STREAM_INIT) {
         Limelog("Cleaning up audio stream...");
-        destroyAudioStream();
+        if (ActiveServiceFlags & PLANK_NATIVE_SERVICE_AUDIO) destroyAudioStream();
         stage--;
         Limelog("done\n");
     }
@@ -154,6 +184,7 @@ void LiStopConnection(void) {
         Limelog("done\n");
     }
     LC_ASSERT(stage == STAGE_NONE);
+    ActiveServiceFlags = 0;
     
     if (RemoteAddrString != NULL) {
         free(RemoteAddrString);
@@ -209,6 +240,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         return -1;
     }
     sessionPortNumber = (uint16_t) NativeSessionConfiguration.sessionPort;
+    ActiveServiceFlags = NativeSessionConfiguration.serviceFlags;
 
     if (drCallbacks != NULL && (drCallbacks->capabilities & CAPABILITY_PULL_RENDERER) && drCallbacks->submitDecodeUnit) {
         Limelog("CAPABILITY_PULL_RENDERER cannot be set with a submitDecodeUnit callback\n");
@@ -271,8 +303,9 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ConnectionInterrupted = false;
     
     // Validate the audio configuration
-    if (MAGIC_BYTE_FROM_AUDIO_CONFIG(StreamConfig.audioConfiguration) != 0xCA ||
-            CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration) > AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT) {
+    if ((ActiveServiceFlags & PLANK_NATIVE_SERVICE_AUDIO) &&
+            (MAGIC_BYTE_FROM_AUDIO_CONFIG(StreamConfig.audioConfiguration) != 0xCA ||
+             CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration) > AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT)) {
         Limelog("Invalid audio configuration specified\n");
         err = -1;
         goto Cleanup;
@@ -350,7 +383,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     Limelog("Initializing audio stream...");
     ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_INIT);
-    err = initializeAudioStream();
+    err = (ActiveServiceFlags & PLANK_NATIVE_SERVICE_AUDIO) ? initializeAudioStream() : 0;
     if (err != 0) {
         Limelog("failed: %d\n", err);
         ListenerCallbacks.stageFailed(STAGE_AUDIO_STREAM_INIT, err);
@@ -397,7 +430,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     Limelog("Initializing input stream...");
     ListenerCallbacks.stageStarting(STAGE_INPUT_STREAM_INIT);
-    initializeInputStream();
+    if (ActiveServiceFlags & PLANK_NATIVE_SERVICE_INPUT) initializeInputStream();
     stage++;
     LC_ASSERT(stage == STAGE_INPUT_STREAM_INIT);
     ListenerCallbacks.stageComplete(STAGE_INPUT_STREAM_INIT);
@@ -431,7 +464,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     Limelog("Starting audio stream...");
     ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_START);
-    err = startAudioStream(audioContext, arFlags);
+    err = (ActiveServiceFlags & PLANK_NATIVE_SERVICE_AUDIO) ? startAudioStream(audioContext, arFlags) : 0;
     if (err != 0) {
         Limelog("Audio stream start failed: %d\n", err);
         ListenerCallbacks.stageFailed(STAGE_AUDIO_STREAM_START, err);
@@ -444,7 +477,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     Limelog("Starting input stream...");
     ListenerCallbacks.stageStarting(STAGE_INPUT_STREAM_START);
-    err = startInputStream();
+    err = (ActiveServiceFlags & PLANK_NATIVE_SERVICE_INPUT) ? startInputStream() : 0;
     if (err != 0) {
         Limelog("Input stream start failed: %d\n", err);
         ListenerCallbacks.stageFailed(STAGE_INPUT_STREAM_START, err);
@@ -456,10 +489,12 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     Limelog("done\n");
     
     // Wiggle the mouse a bit to wake the display up
-    LiSendMouseMoveEvent(1, 1);
-    PltSleepMs(10);
-    LiSendMouseMoveEvent(-1, -1);
-    PltSleepMs(10);
+    if (ActiveServiceFlags & PLANK_NATIVE_SERVICE_INPUT) {
+        LiSendMouseMoveEvent(1, 1);
+        PltSleepMs(10);
+        LiSendMouseMoveEvent(-1, -1);
+        PltSleepMs(10);
+    }
 
     ListenerCallbacks.connectionStarted();
 
