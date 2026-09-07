@@ -556,6 +556,9 @@ typedef struct _PLANK_NATIVE_SESSION_CONFIGURATION {
 int LiSetPlankNativeSessionConfiguration(
     const PLANK_NATIVE_SESSION_CONFIGURATION* configuration);
 
+// Valid after LiStartConnection() succeeds until LiStopConnection().
+uint32_t LiGetPlankNativeServiceFlags(void);
+
 // Use this function to zero the server information when allocated on the stack or heap
 void LiInitializeServerInformation(PSERVER_INFORMATION serverInfo);
 

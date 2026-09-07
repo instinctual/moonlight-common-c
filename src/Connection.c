@@ -113,6 +113,10 @@ void LiInterruptConnection(void) {
     ConnectionInterrupted = true;
 }
 
+uint32_t LiGetPlankNativeServiceFlags(void) {
+    return ActiveServiceFlags;
+}
+
 // Stop the connection by undoing the step at the current stage and those before it
 void LiStopConnection(void) {
     // Disable termination callbacks now
