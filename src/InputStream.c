@@ -3,8 +3,6 @@
 #include "plank_transport_input.h"
 
 static bool initialized;
-static bool needsBatchedScroll;
-static int batchedScrollDelta;
 
 static PlankNativeInputSender nativeInputSender;
 static void* nativeInputSenderContext;
@@ -95,14 +93,7 @@ int initializeInputStream(void) {
     LbqInitializeLinkedBlockingQueue(&packetQueue, MAX_QUEUED_INPUT_PACKETS);
     LbqInitializeLinkedBlockingQueue(&packetHolderFreeList, MAX_QUEUED_INPUT_PACKETS);
 
-    // FIXME: Unsure if this is exactly right, but it's probably good enough.
-    //
-    // GFE 3.13.1.30 is not using NVVHCI for mouse/keyboard (and is confirmed unaffected)
-    // GFE 3.15.0.164 seems to be the first release using NVVHCI for mouse/keyboard
-    //
-    // Sunshine also uses SendInput() so it's not affected either.
-    needsBatchedScroll = APP_VERSION_AT_LEAST(7, 1, 409) && !IS_SUNSHINE();
-    batchedScrollDelta = 0;
+    // Native PLANK input preserves high-resolution scrolling and modifiers.
 
     currentPenButtonState = 0;
 
@@ -327,13 +318,9 @@ static void inputSendThreadProc(void* context) {
     uint32_t multiControllerMagicLE;
     uint32_t relMouseMagicLE;
 
-    if (AppVersionQuad[0] >= 5) {
+    {
         multiControllerMagicLE = LE32(MULTI_CONTROLLER_MAGIC_GEN5);
         relMouseMagicLE = LE32(MOUSE_MOVE_REL_MAGIC_GEN5);
-    }
-    else {
-        multiControllerMagicLE = LE32(MULTI_CONTROLLER_MAGIC);
-        relMouseMagicLE = LE32(MOUSE_MOVE_REL_MAGIC);
     }
 
     uint64_t lastMousePacketTime = 0;
@@ -657,11 +644,8 @@ int LiSendMouseMoveEvent(short deltaX, short deltaY) {
         }
 
         holder->packet.mouseMoveRel.header.size = BE32(sizeof(NV_REL_MOUSE_MOVE_PACKET) - sizeof(uint32_t));
-        if (AppVersionQuad[0] >= 5) {
+        {
             holder->packet.mouseMoveRel.header.magic = LE32(MOUSE_MOVE_REL_MAGIC_GEN5);
-        }
-        else {
-            holder->packet.mouseMoveRel.header.magic = LE32(MOUSE_MOVE_REL_MAGIC);
         }
 
         // Remaining fields are set in the input thread based on the latest currentRelativeMouseState values
@@ -774,7 +758,7 @@ int LiSendMouseButtonEvent(char action, int button) {
 
     holder->packet.mouseButton.header.size = BE32(sizeof(NV_MOUSE_BUTTON_PACKET) - sizeof(uint32_t));
     holder->packet.mouseButton.header.magic = (uint8_t)action;
-    if (AppVersionQuad[0] >= 5) {
+    {
         holder->packet.mouseButton.header.magic++;
     }
     holder->packet.mouseButton.header.magic = LE32(holder->packet.mouseButton.header.magic);
@@ -809,48 +793,11 @@ int LiSendKeyboardEvent2(short keyCode, char keyAction, char modifiers, char fla
     // GFE will synthesize an errant key down event for the non-extended key, causing that key to be
     // stuck down after the extended modifier key is raised. For non-extended keys, we must set the
     // MODIFIER flag for correct behavior.
-    if (!IS_SUNSHINE()) {
-        switch (keyCode & 0xFF) {
-            case 0x5B: // VK_LWIN
-            case 0x5C: // VK_RWIN
-                // Any keyboard event with the META modifier flag is dropped by all known GFE versions.
-                // This prevents us from sending shortcuts involving the meta key (Win+X, Win+Tab, etc).
-                // The catch is that the meta key event itself would actually work if it didn't set its
-                // own modifier flag, so we'll clear that here. This should be safe even if a new GFE
-                // release comes out that stops dropping events with MODIFIER_META flag.
-                modifiers &= ~MODIFIER_META;
-                break;
 
-            case 0xA0: // VK_LSHIFT
-                modifiers |= MODIFIER_SHIFT;
-                break;
-            case 0xA1: // VK_RSHIFT
-                modifiers &= ~MODIFIER_SHIFT;
-                break;
-
-            case 0xA2: // VK_LCONTROL
-                modifiers |= MODIFIER_CTRL;
-                break;
-            case 0xA3: // VK_RCONTROL
-                modifiers &= ~MODIFIER_CTRL;
-                break;
-
-            case 0xA4: // VK_LMENU
-                modifiers |= MODIFIER_ALT;
-                break;
-            case 0xA5: // VK_RMENU
-                modifiers &= ~MODIFIER_ALT;
-                break;
-
-            default:
-                // No fixups
-                break;
-        }
-    }
 
     holder->packet.keyboard.header.size = BE32(sizeof(NV_KEYBOARD_PACKET) - sizeof(uint32_t));
     holder->packet.keyboard.header.magic = LE32((uint32_t)keyAction);
-    holder->packet.keyboard.flags = IS_SUNSHINE() ? flags : 0;
+    holder->packet.keyboard.flags = flags;
     holder->packet.keyboard.keyCode = LE16(keyCode);
     holder->packet.keyboard.modifiers = modifiers;
     holder->packet.keyboard.zero2 = 0;
@@ -954,21 +901,7 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         buttonFlags &= 0xFFFF;
     }
 
-    if (!IS_SUNSHINE()) {
-        // GFE only supports a maximum of 4 controllers
-        controllerNumber %= 4;
-        activeGamepadMask &= 0xF;
-
-        // GFE doesn't support buttons that aren't present on an Xbox 360 controller,
-        // so the extended button flags won't even be sent. For convenience, let's
-        // map the MISC button to the SPECIAL (Guide) button. Some platforms reserve
-        // the Guide button for OS functionality (Game Bar, Home button, etc.), so
-        // this allows otherwise unused buttons to activate that functionality.
-        if (buttonFlags & MISC_FLAG) {
-            buttonFlags |= SPECIAL_FLAG;
-        }
-    }
-    else {
+    {
         // Sunshine supports up to 16 (max number of bits in activeGamepadMask)
         controllerNumber %= MAX_GAMEPADS;
     }
@@ -983,12 +916,11 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
     // Check that this current input is compatible with the current batch
     if (holder) {
         // We do not support batching with the legacy controller packet format
-        LC_ASSERT(AppVersionQuad[0] > 3);
 
         // If this new packet has different button flags, end the batch to ensure the
         // host receives the exact axis values present at the time of the button press.
         if (holder->packet.multiController.buttonFlags != LE16((short)buttonFlags) ||
-            holder->packet.multiController.buttonFlags2 != (IS_SUNSHINE() ? LE16((short)(buttonFlags >> 16)) : 0)) {
+            holder->packet.multiController.buttonFlags2 != (LE16((short)(buttonFlags >> 16)))) {
             // Pretend there wasn't a currently queued controller packet
             holder = NULL;
         }
@@ -1014,32 +946,13 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         PltLockMutex(&batchedInputMutex);
     }
 
-    if (AppVersionQuad[0] == 3) {
-        // Generation 3 servers don't support multiple controllers so we send
-        // the legacy packet
-        holder->packet.controller.header.size = BE32(sizeof(NV_CONTROLLER_PACKET) - sizeof(uint32_t));
-        holder->packet.controller.header.magic = LE32(CONTROLLER_MAGIC);
-        holder->packet.controller.headerB = LE16(C_HEADER_B);
-        holder->packet.controller.buttonFlags = LE16(buttonFlags);
-        holder->packet.controller.leftTrigger = leftTrigger;
-        holder->packet.controller.rightTrigger = rightTrigger;
-        holder->packet.controller.leftStickX = LE16(leftStickX);
-        holder->packet.controller.leftStickY = LE16(leftStickY);
-        holder->packet.controller.rightStickX = LE16(rightStickX);
-        holder->packet.controller.rightStickY = LE16(rightStickY);
-        holder->packet.controller.tailA = LE32(C_TAIL_A);
-        holder->packet.controller.tailB = LE16(C_TAIL_B);
-    }
-    else {
+    {
         // Generation 4+ servers support passing the controller number
         holder->packet.multiController.header.size = BE32(sizeof(NV_MULTI_CONTROLLER_PACKET) - sizeof(uint32_t));
 
         // On Gen 5 servers, the header code is decremented by one
-        if (AppVersionQuad[0] >= 5) {
+        {
             holder->packet.multiController.header.magic = LE32(MULTI_CONTROLLER_MAGIC_GEN5);
-        }
-        else {
-            holder->packet.multiController.header.magic = LE32(MULTI_CONTROLLER_MAGIC);
         }
 
         holder->packet.multiController.headerB = LE16(MC_HEADER_B);
@@ -1054,7 +967,7 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         holder->packet.multiController.rightStickX = LE16(rightStickX);
         holder->packet.multiController.rightStickY = LE16(rightStickY);
         holder->packet.multiController.tailA = LE16(MC_TAIL_A);
-        holder->packet.multiController.buttonFlags2 = IS_SUNSHINE() ? LE16((short)(buttonFlags >> 16)) : 0;
+        holder->packet.multiController.buttonFlags2 = LE16((short)(buttonFlags >> 16));
         holder->packet.multiController.tailB = LE16(MC_TAIL_B);
 
         if (enqueueHolder) {
@@ -1128,60 +1041,15 @@ int LiSendHighResScrollEvent(short scrollAmount) {
     // converted into a full WHEEL_DELTA scroll, even if the actual delta is tiny.
     // Similarly, large scrolls are capped at +/- WHEEL_DELTA too so we'll need to
     // split those up too.
-    if (needsBatchedScroll) {
-        if ((batchedScrollDelta < 0 && scrollAmount > 0) ||
-            (batchedScrollDelta > 0 && scrollAmount < 0)) {
-            // Reset the accumulated scroll delta when the direction changes
-            // FIXME: Maybe reset accumulated delta based on time too?
-            batchedScrollDelta = 0;
-        }
-
-        batchedScrollDelta += scrollAmount;
-
-        while (abs(batchedScrollDelta) >= LI_WHEEL_DELTA) {
-            scrollAmount = batchedScrollDelta > 0 ? LI_WHEEL_DELTA : -LI_WHEEL_DELTA;
-
-            holder = allocatePacketHolder(0);
-            if (holder == NULL) {
-                return -1;
-            }
-
-            holder->packet.scroll.header.size = BE32(sizeof(NV_SCROLL_PACKET) - sizeof(uint32_t));
-            if (AppVersionQuad[0] >= 5) {
-                holder->packet.scroll.header.magic = LE32(SCROLL_MAGIC_GEN5);
-            }
-            else {
-                holder->packet.scroll.header.magic = LE32(SCROLL_MAGIC);
-            }
-            holder->packet.scroll.scrollAmt1 = BE16(scrollAmount);
-            holder->packet.scroll.scrollAmt2 = holder->packet.scroll.scrollAmt1;
-            holder->packet.scroll.zero3 = 0;
-
-            err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
-            if (err != LBQ_SUCCESS) {
-                LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
-                Limelog("Input queue reached maximum size limit\n");
-                freePacketHolder(holder);
-                return err;
-            }
-
-            batchedScrollDelta -= scrollAmount;
-        }
-
-        err = 0;
-    }
-    else {
+    {
         holder = allocatePacketHolder(0);
         if (holder == NULL) {
             return -1;
         }
 
         holder->packet.scroll.header.size = BE32(sizeof(NV_SCROLL_PACKET) - sizeof(uint32_t));
-        if (AppVersionQuad[0] >= 5) {
+        {
             holder->packet.scroll.header.magic = LE32(SCROLL_MAGIC_GEN5);
-        }
-        else {
-            holder->packet.scroll.header.magic = LE32(SCROLL_MAGIC);
         }
         holder->packet.scroll.scrollAmt1 = BE16(scrollAmount);
         holder->packet.scroll.scrollAmt2 = holder->packet.scroll.scrollAmt1;
@@ -1213,9 +1081,7 @@ int LiSendHighResHScrollEvent(short scrollAmount) {
     }
 
     // This is a protocol extension only supported with Sunshine
-    if (!IS_SUNSHINE()) {
-        return LI_ERR_UNSUPPORTED;
-    }
+
 
     if (scrollAmount == 0) {
         return 0;
@@ -1351,7 +1217,7 @@ int LiSendControllerArrivalEvent(uint8_t controllerNumber, uint16_t activeGamepa
     }
 
     // The arrival event is only supported by Sunshine
-    if (IS_SUNSHINE()) {
+    {
         holder = allocatePacketHolder(0);
         if (holder == NULL) {
             return -1;
@@ -1500,9 +1366,7 @@ int LiSendControllerBatteryEvent(uint8_t controllerNumber, uint8_t batteryState,
     }
 
     // This is a protocol extension only supported with Sunshine
-    if (!IS_SUNSHINE()) {
-        return LI_ERR_UNSUPPORTED;
-    }
+
 
     // Sunshine supports up to 16 controllers
     controllerNumber %= MAX_GAMEPADS;

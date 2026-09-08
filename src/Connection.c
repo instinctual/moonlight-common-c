@@ -14,7 +14,6 @@ char* RemoteAddrString;
 struct sockaddr_storage RemoteAddr;
 struct sockaddr_storage LocalAddr;
 SOCKADDR_LEN AddrLen;
-int AppVersionQuad[4];
 STREAM_CONFIGURATION StreamConfig;
 CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
 DECODER_RENDERER_CALLBACKS VideoCallbacks;
@@ -267,13 +266,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         goto Cleanup;
     }
 
-    // Extract the appversion from the supplied string
-    if (extractVersionQuadFromString(serverInfo->serverInfoAppVersion,
-                                     AppVersionQuad) < 0) {
-        Limelog("Invalid appversion string: %s\n", serverInfo->serverInfoAppVersion);
-        err = -1;
-        goto Cleanup;
-    }
+    // Native PLANK setup is authoritative, not an upstream appversion string.
 
     // Replace missing callbacks with placeholders
     fixupMissingCallbacks(&drCallbacks, &arCallbacks, &clCallbacks);
@@ -328,16 +321,6 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         Limelog("WARNING: Streaming at resolutions above 8K will likely fail! Trying anyway!\n");
     }
 
-    // Reference frame invalidation doesn't seem to work with resolutions much
-    // higher than 1440p. I haven't figured out a pattern to indicate which
-    // resolutions will work and which won't, but we can at least exclude
-    // 4K from RFI to avoid significant persistent artifacts after frame loss.
-    if (StreamConfig.width == 3840 && StreamConfig.height == 2160 &&
-            (VideoCallbacks.capabilities & CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC) &&
-            !IS_SUNSHINE()) {
-        Limelog("Disabling reference frame invalidation for 4K streaming with GFE\n");
-        VideoCallbacks.capabilities &= ~CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC;
-    }
     
     Limelog("Initializing platform...");
     ListenerCallbacks.stageStarting(STAGE_PLATFORM_INIT);

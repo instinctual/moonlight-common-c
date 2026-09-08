@@ -13,7 +13,6 @@ extern char* RemoteAddrString;
 extern struct sockaddr_storage RemoteAddr;
 extern struct sockaddr_storage LocalAddr;
 extern SOCKADDR_LEN AddrLen;
-extern int AppVersionQuad[4];
 extern STREAM_CONFIGURATION StreamConfig;
 extern CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
 extern DECODER_RENDERER_CALLBACKS VideoCallbacks;
@@ -40,13 +39,6 @@ extern uint32_t SunshineFeatureFlags;
 #define isBefore16(x, y) (U16((x) - (y)) > (UINT16_MAX/2))
 #define isBefore24(x, y) (U24((x) - (y)) > (UINT24_MAX/2))
 #define isBefore32(x, y) (U32((x) - (y)) > (UINT32_MAX/2))
-
-#define APP_VERSION_AT_LEAST(a, b, c)                                                       \
-    ((AppVersionQuad[0] > (a)) ||                                                           \
-     (AppVersionQuad[0] == (a) && AppVersionQuad[1] > (b)) ||                               \
-     (AppVersionQuad[0] == (a) && AppVersionQuad[1] == (b) && AppVersionQuad[2] >= (c)))
-
-#define IS_SUNSHINE() (AppVersionQuad[3] < 0)
 
 // Client feature flags negotiated by PLANK native setup.
 #define ML_FF_IDENTITY_GBR_444 0x04 // Client requests full-range identity G,B,R plane mapping

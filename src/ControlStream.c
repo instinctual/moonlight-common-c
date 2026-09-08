@@ -395,7 +395,7 @@ bool LiGetCurrentHostDisplayHdrMode(void) {
 }
 
 bool LiGetHdrMetadata(PSS_HDR_METADATA metadata) {
-    if (!IS_SUNSHINE() || !hdrEnabled) {
+    if (!hdrEnabled) {
         return false;
     }
 
