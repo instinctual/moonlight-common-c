@@ -390,14 +390,6 @@ static void skipToNextNalOrEnd(PBUFFER_DESC buffer) {
     }
 }
 
-// Advance the buffer descriptor to the start of the next NAL
-static void skipToNextNal(PBUFFER_DESC buffer) {
-    skipToNextNalOrEnd(buffer);
-
-    // If we skipped all the data, something has gone horribly wrong
-    LC_ASSERT(buffer->length > 0);
-}
-
 // Reassemble the frame with the given frame number
 static void reassembleFrame(int frameNumber) {
     if (nalChainHead != NULL) {
@@ -568,12 +560,14 @@ static void processAvcHevcKeyFrame(PBUFFER_DESC currentPos) {
     while (currentPos->length != 0) {
         // Skip through any padding bytes
         if (!getAnnexBStartSequence(currentPos, NULL)) {
-            skipToNextNal(currentPos);
+            skipToNextNalOrEnd(currentPos);
+            if (currentPos->length == 0) return;
         }
 
         // Skip prepended AUD or SEI NALUs and any padding between them.
         while (isAccessUnitDelimiter(currentPos) || isSeiNal(currentPos)) {
-            skipToNextNal(currentPos);
+            skipToNextNalOrEnd(currentPos);
+            if (currentPos->length == 0) return;
         }
 
         int start = currentPos->offset;
@@ -630,17 +624,21 @@ int LiSubmitPlankVideoFrame(const unsigned char* frame,
         dropFrameState();
     }
 
-    // KyProto delivers reconstructed frames in order. A forward discontinuity
-    // means RaptorQ could not recover one or more complete frames. Request a
-    // clean key frame through the existing recovery control path.
+    // A gap can come from transport loss OR sender-side recovery skips. An
+    // arriving keyframe already repairs the reference chain: requesting another
+    // here makes senders which skip in-flight deltas request recovery forever.
+    // Do not trust the key flag alone; validate its Annex-B contents below.
     if (frameNumber < nextFrameNumber) {
         return 1;
     }
     if (frameNumber > nextFrameNumber) {
         cleanupFrameState();
         waitingForIdrFrame = true;
-        connectionDetectedFrameLoss(nextFrameNumber, frameNumber - 1);
-        LiRequestIdrFrame();
+        if (!keyFrame) {
+            // The assembler requires an IDR, not reference invalidation, and
+            // must schedule only one request for this discontinuity.
+            LiRequestIdrFrame();
+        }
     }
 
     if (waitingForIdrFrame && !keyFrame) {
@@ -649,7 +647,7 @@ int LiSubmitPlankVideoFrame(const unsigned char* frame,
     }
 
     cleanupFrameState();
-    frameType = keyFrame ? FRAME_TYPE_IDR : FRAME_TYPE_PFRAME;
+    frameType = FRAME_TYPE_PFRAME;
     frameHostProcessingLatency = hostProcessingLatency;
     frameReceiveTimeUs = PltGetMicroseconds();
     framePresentationTimeUs = (pts90Khz * 1000000ULL) / 90000ULL;
@@ -660,7 +658,13 @@ int LiSubmitPlankVideoFrame(const unsigned char* frame,
     currentPos.length = (unsigned int)frameLength;
     if (keyFrame) {
         processAvcHevcKeyFrame(&currentPos);
-        if (nalChainHead == NULL || frameType != FRAME_TYPE_IDR) {
+        PLENTRY entry = nalChainHead;
+        if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) {
+            entry = entry && entry->bufferType == BUFFER_TYPE_VPS ? entry->next : NULL;
+        }
+        entry = entry && entry->bufferType == BUFFER_TYPE_SPS ? entry->next : NULL;
+        entry = entry && entry->bufferType == BUFFER_TYPE_PPS ? entry->next : NULL;
+        if (!entry || entry->bufferType != BUFFER_TYPE_PICDATA || frameType != FRAME_TYPE_IDR) {
             cleanupFrameState();
             waitingForIdrFrame = true;
             return -1;
